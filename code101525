@@ -1,0 +1,27 @@
+public void updPodInfo(int podId, JsonNode podInfo) {
+    Integer podPID = null;
+    Timestamp podStartTime = null;
+
+    String val = podInfo.path("pid").asText(null);
+    if (Objects.nonNull(val)) {
+        podPID = Integer.valueOf(val);
+    }
+
+    val = podInfo.path("start_time").asText(null);
+    if (Objects.nonNull(val)) {
+        podStartTime = Timestamp.from(Instant.ofEpochMilli(Long.valueOf(val)));
+    }
+
+    jdbcTemplate.update(sql("SQL_UPD_POD_INFO"), ps -> {
+        // ---- only this line is new ----
+        ps.setNull(1, java.sql.Types.CHAR);   // FLAG_IN_USE = NVL(?, FLAG_IN_USE)
+        // --------------------------------
+        if (podPID == null) ps.setNull(2, java.sql.Types.NUMERIC);
+        else ps.setInt(2, podPID);
+
+        if (podStartTime == null) ps.setNull(3, java.sql.Types.NUMERIC);
+        else ps.setTimestamp(3, podStartTime);
+
+        ps.setInt(4, podId);
+    });
+}
