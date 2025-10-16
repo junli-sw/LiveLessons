@@ -45,3 +45,17 @@ public void updViewLoadStatus(String viewName, String dataset, String userid,
         ps.setInt(9, podId);
     });
 }
+
+
+
+//#####
+List<Integer> paramTypes =
+        Collections.nCopies(batchConfigSchemaMap.size(), Types.NVARCHAR);
+
+
+//#####
+jdbcTemplate.batchUpdate(
+        updEntityInfoQuery,
+        paramsList,                              // list of parameter arrays
+        paramTypes.stream().mapToInt(i -> i).toArray()
+);
