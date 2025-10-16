@@ -1,0 +1,47 @@
+@Transactional(propagation = Propagation.REQUIRED)
+public void updViewLoadStatus(String viewName, String dataset, String userid,
+                              int podId, JsonNode statusDetails) {
+
+    ViewLoadStatus viewLoadStatus =
+            ViewLoadStatus.valueOf(statusDetails.path("status").asText("NULL").toUpperCase());
+
+    Map<String, Long> recordCountsMap = new HashMap<>();
+    for (String s : new String[]{"total_record_count", "loaded_record_count", "mem_size_bytes"}) {
+        String val = statusDetails.path(s).asText(null);
+        recordCountsMap.put(s, (val != null ? Long.valueOf(val) : null));
+    }
+
+    // pull values into effectively-final locals for the lambda
+    final String statusStr   = viewLoadStatus.toString();
+    final Long totalCount    = recordCountsMap.get("total_record_count");
+    final Long loadedCount   = recordCountsMap.get("loaded_record_count");
+    final Long memSizeBytes  = recordCountsMap.get("mem_size_bytes");
+
+    final Long lastTotal, lastLoaded, lastMemBytes;
+    if (viewLoadStatus == ViewLoadStatus.LOADED) {
+        lastTotal    = totalCount;
+        lastLoaded   = loadedCount;
+        lastMemBytes = memSizeBytes;
+    } else {
+        lastTotal = lastLoaded = lastMemBytes = null;   // leave unchanged via NVL
+    }
+
+    jdbcTemplate.update(sql("SQL_UPD_VIEW_LOAD_INFO"), ps -> {
+        // 1) STATUS (VARCHAR2)
+        ps.setString(1, statusStr);
+
+        // 2-4) NUMBER columns
+        if (totalCount   == null) ps.setNull(2, java.sql.Types.NUMERIC); else ps.setLong(2, totalCount);
+        if (loadedCount  == null) ps.setNull(3, java.sql.Types.NUMERIC); else ps.setLong(3, loadedCount);
+        if (memSizeBytes == null) ps.setNull(4, java.sql.Types.NUMERIC); else ps.setLong(4, memSizeBytes);
+
+        // 5-7) LAST_SUCCESS_* (NUMBER) — null means “don’t change” via NVL
+        if (lastTotal    == null) ps.setNull(5, java.sql.Types.NUMERIC); else ps.setLong(5, lastTotal);
+        if (lastLoaded   == null) ps.setNull(6, java.sql.Types.NUMERIC); else ps.setLong(6, lastLoaded);
+        if (lastMemBytes == null) ps.setNull(7, java.sql.Types.NUMERIC); else ps.setLong(7, lastMemBytes);
+
+        // 8) VIEW_NAME (VARCHAR2), 9) POD_ID (NUMBER)
+        ps.setString(8, viewName);
+        ps.setInt(9, podId);
+    });
+}
