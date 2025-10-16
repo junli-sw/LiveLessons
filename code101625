@@ -59,3 +59,37 @@ jdbcTemplate.batchUpdate(
         paramsList,                              // list of parameter arrays
         paramTypes.stream().mapToInt(i -> i).toArray()
 );
+
+
+//#######
+String updEntityInfoQuery = "UPDATE CFG_DF_BATCH_CONFIG_ENTRIES SET ";
+String delim = "";
+
+for (Map<String, Object> fieldSchema : batchConfigSchemaMap.values()) {
+    String entityInfoCol = PREFIX_ENTITY_INFO + fieldSchema.get("entity_info_seq");
+    updEntityInfoQuery += delim + entityInfoCol + " = NVL(?, " + entityInfoCol + ")";
+    delim = ", ";
+}
+
+updEntityInfoQuery +=
+        " WHERE CFG_NAME || VERSION IN (" +
+        "   SELECT CFG_NAME || VERSION FROM CFG_DF_BATCH_CONFIG " +
+        "   WHERE DATASET_TYPE = ? AND DATASET_PROVIDER = ? " +
+        "   AND STATUS IN ('draft', 'active')" +
+        " )" +
+        " AND %s = ? AND %s = ? " +
+        " AND (STATUS IS NULL OR STATUS != 'deleted')";
+
+logger.info("Batch Config Entry Metadata Update query: {}", updEntityInfoQuery);
+
+// --- set up param types matching NVARCHAR columns ---
+List<Integer> paramTypes = Collections.nCopies(batchConfigSchemaMap.size(), Types.NVARCHAR);
+
+// --- perform the batch update ---
+jdbcTemplate.batchUpdate(
+        String.format(updEntityInfoQuery,
+                entityTypeKeyMap.get("entity_type"),
+                entityTypeKeyMap.get("entity_key")),
+        paramsList,
+        paramTypes.stream().mapToInt(i -> i).toArray()
+);
