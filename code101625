@@ -93,3 +93,6 @@ jdbcTemplate.batchUpdate(
         paramsList,
         paramTypes.stream().mapToInt(i -> i).toArray()
 );
+
+Hey Riyas,
+It’s been great working with you these past few years! You’ve always been super helpful and easy to work with. All the best in your next adventure — let’s definitely keep in touch!
