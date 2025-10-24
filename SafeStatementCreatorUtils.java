@@ -12,19 +12,20 @@ import java.sql.Types;
 
 /**
  * Global null-safe JDBC parameter setter for Oracle.
- * Fixes ORA-17004 by enforcing setNull() with a known SQL type.
+ * Prevents ORA-17004 by enforcing setNull() with a known SQL type.
+ * Can also log all null substitutions for diagnostics.
  */
 public final class SafeStatementCreatorUtils {
 
     private static final Logger log = LoggerFactory.getLogger(SafeStatementCreatorUtils.class);
 
-    // Toggle to enable/disable null logging
+    /** Toggle to enable or disable logging for null handling */
     private static final boolean LOG_NULL_TYPES = true;
 
     private SafeStatementCreatorUtils() {}
 
     // -------------------------------------------------------------------------
-    // Main setter used anywhere in DAOs or AOP wrappers
+    // Main setter (can be used manually or from AOP wrapper)
     // -------------------------------------------------------------------------
     public static void setParameterValueSafely(
             PreparedStatement ps, int paramIndex, int sqlType, @Nullable Object inValue)
@@ -47,7 +48,7 @@ public final class SafeStatementCreatorUtils {
     }
 
     // -------------------------------------------------------------------------
-    // Helper methods used by AOP interceptors or diagnostics
+    // Helper methods for AOP interceptors
     // -------------------------------------------------------------------------
     public static boolean isLoggingEnabled() {
         return LOG_NULL_TYPES;
@@ -68,7 +69,7 @@ public final class SafeStatementCreatorUtils {
     }
 
     // -------------------------------------------------------------------------
-    // Internal helpers
+    // Internal utilities
     // -------------------------------------------------------------------------
     private static String sqlTypeName(int sqlType) {
         switch (sqlType) {
