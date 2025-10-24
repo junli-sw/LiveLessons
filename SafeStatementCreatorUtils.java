@@ -12,20 +12,19 @@ import java.sql.Types;
 
 /**
  * Global null-safe JDBC parameter setter for Oracle.
- * Prevents ORA-17004 by enforcing setNull() with a known SQL type.
- * Can also log all null substitutions for diagnostics.
+ * Fixes ORA-17004 by enforcing setNull() with a known SQL type.
  */
 public final class SafeStatementCreatorUtils {
 
     private static final Logger log = LoggerFactory.getLogger(SafeStatementCreatorUtils.class);
 
-    /** Toggle to enable or disable logging for null handling */
+    // Toggle this if you ever want to silence the logs entirely
     private static final boolean LOG_NULL_TYPES = true;
 
     private SafeStatementCreatorUtils() {}
 
     // -------------------------------------------------------------------------
-    // Main setter (can be used manually or from AOP wrapper)
+    // Core safe setter
     // -------------------------------------------------------------------------
     public static void setParameterValueSafely(
             PreparedStatement ps, int paramIndex, int sqlType, @Nullable Object inValue)
@@ -35,7 +34,6 @@ public final class SafeStatementCreatorUtils {
             int effectiveType = (sqlType == SqlTypeValue.TYPE_UNKNOWN)
                     ? Types.VARCHAR
                     : sqlType;
-
             ps.setNull(paramIndex, effectiveType);
             logNull(paramIndex, effectiveType);
         } else {
@@ -48,7 +46,7 @@ public final class SafeStatementCreatorUtils {
     }
 
     // -------------------------------------------------------------------------
-    // Helper methods for AOP interceptors
+    // Helpers used by AOP interceptors
     // -------------------------------------------------------------------------
     public static boolean isLoggingEnabled() {
         return LOG_NULL_TYPES;
@@ -69,7 +67,7 @@ public final class SafeStatementCreatorUtils {
     }
 
     // -------------------------------------------------------------------------
-    // Internal utilities
+    // Internal helpers
     // -------------------------------------------------------------------------
     private static String sqlTypeName(int sqlType) {
         switch (sqlType) {
