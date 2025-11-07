@@ -61,3 +61,118 @@ debugAndExecute(namedParameterJdbcTemplate, namedSql, src, /*executeWithTypes=*/
 namedParameterJdbcTemplate.update(namedSql, src);
 
 ---------------------------
+
+
+
+package com.citi.ripcurl.config.db.util;
+
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.SqlTypeValue;
+import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
+import org.springframework.jdbc.core.namedparam.NamedParameterUtils;
+import org.springframework.jdbc.core.namedparam.ParsedSql;
+import org.springframework.jdbc.core.namedparam.SqlParameterSource;
+import org.springframework.jdbc.support.JdbcUtils;
+
+import java.sql.Types;
+import java.util.Arrays;
+
+/**
+ * Utility for expanding and debugging NamedParameterJdbcTemplate SQLs.
+ * Prints full SQL, parameter indexes, JDBC types, and values.
+ *
+ * Example usage:
+ *     JdbcDebugUtils.debugAndExecute(namedParameterJdbcTemplate,
+ *         "SQL_SAVE_DATASET_SETTINGS",
+ *         params,
+ *         true);
+ */
+public final class JdbcDebugUtils {
+
+    private JdbcDebugUtils() {
+        // no instances
+    }
+
+    /**
+     * Expands a named-parameter SQL into positional SQL and prints debug info.
+     * Optionally executes the statement using plain JdbcTemplate with explicit types.
+     *
+     * @param np                NamedParameterJdbcTemplate instance
+     * @param namedSql          SQL string (with named parameters)
+     * @param src               SqlParameterSource containing parameter values
+     * @param executeWithTypes  if true, executes with explicit types via JdbcTemplate
+     */
+    public static void debugAndExecute(
+            NamedParameterJdbcTemplate np,
+            String namedSql,
+            SqlParameterSource src,
+            boolean executeWithTypes) {
+
+        // 1. Expand SQL
+        ParsedSql parsed = NamedParameterUtils.parseSqlStatement(namedSql);
+        String expandedSql = NamedParameterUtils.substituteNamedParameters(parsed, src);
+
+        // 2. Build values[] and types[]
+        Object[] values = NamedParameterUtils.buildValueArray(parsed, src, null);
+        int[] types = NamedParameterUtils.buildSqlTypeArray(parsed, src);
+
+        // 3. Print SQL summary
+        int qCount = (int) expandedSql.chars().filter(ch -> ch == '?').count();
+        System.out.println("\n================ JDBC DEBUG ================");
+        System.out.println("Expanded SQL:");
+        System.out.println(expandedSql);
+        System.out.printf("Question mark count: %d, values.length: %d, types.length: %d%n",
+                qCount, values.length, types.length);
+
+        // 4. Per-parameter breakdown
+        for (int i = 0; i < values.length; i++) {
+            int sqlType = (types != null && i < types.length)
+                    ? types[i]
+                    : SqlTypeValue.TYPE_UNKNOWN;
+            String typeName = JdbcUtils.resolveTypeName(sqlType);
+            Object v = values[i];
+            System.out.printf("#%02d  type=%s(%d)  value=%s%n",
+                    i + 1, typeName, sqlType, String.valueOf(v));
+        }
+
+        System.out.println("===========================================\n");
+
+        // 5. Optional: execute with types to bypass Oracle metadata lookup
+        if (executeWithTypes) {
+            JdbcTemplate jt = (JdbcTemplate) np.getJdbcOperations();
+            jt.update(expandedSql, values, types);
+        }
+    }
+
+    /**
+     * Convenience overload that only prints the debug info (no execution).
+     */
+    public static void debugSql(NamedParameterJdbcTemplate np,
+                                String namedSql,
+                                SqlParameterSource src) {
+        debugAndExecute(np, namedSql, src, false);
+    }
+}
+
+--------------------------
+
+import com.citi.ripcurl.config.db.util.JdbcDebugUtils;
+
+...
+
+String namedSql = sql(name: "SQL_SAVE_DATASET_SETTINGS");
+MapSqlParameterSource params =
+    datasetSetting.getMapSqlParameterSource()
+        .addValues(datasetSetting.getEntitlement()
+            .orElseGet(DatasetSetting.Entitlement::new)
+            .getMapSqlParameterSource()
+            .getValues())
+        .addValue("dataset", dataset);
+
+// Debug only (no execution)
+JdbcDebugUtils.debugSql(namedParameterJdbcTemplate, namedSql, params);
+
+// Or debug + execute (recommended for MERGE testing)
+JdbcDebugUtils.debugAndExecute(namedParameterJdbcTemplate, namedSql, params, true);
+
+--------------------------
