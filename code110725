@@ -1,0 +1,63 @@
+-----------------------
+
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.namedparam.*;
+import org.springframework.jdbc.core.SqlParameterValue;
+import org.springframework.jdbc.core.SqlTypeValue;
+import org.springframework.jdbc.support.JdbcUtils;
+
+import java.sql.Types;
+import java.util.Arrays;
+
+private static void debugAndExecute(
+        NamedParameterJdbcTemplate np,
+        String namedSql,
+        SqlParameterSource src,
+        boolean executeWithTypes) {
+
+    // 1) Parse and expand to positional SQL
+    ParsedSql parsed = NamedParameterUtils.parseSqlStatement(namedSql);
+    String expandedSql = NamedParameterUtils.substituteNamedParameters(parsed, src);
+
+    // 2) Build values[] and types[] in the exact order Spring will use
+    Object[] values = NamedParameterUtils.buildValueArray(parsed, src, null);
+    int[] types = NamedParameterUtils.buildSqlTypeArray(parsed, src);
+
+    // 3) Debug prints
+    int qCount = (int) expandedSql.chars().filter(ch -> ch == '?').count();
+    System.out.println("\n=== SQL DEBUG ===");
+    System.out.println("Expanded SQL:\n" + expandedSql);
+    System.out.println("Q count = " + qCount + ", values.length = " + values.length + ", types.length = " + types.length);
+
+    for (int i = 0; i < values.length; i++) {
+        int t = (types != null && i < types.length) ? types[i] : SqlTypeValue.TYPE_UNKNOWN;
+        String typeName = JdbcUtils.resolveTypeName(t); // human-readable if known
+        Object v = values[i];
+        System.out.printf("#%02d  type=%s(%d)  value=%s%n", i + 1, typeName, t, String.valueOf(v));
+    }
+    System.out.println("===============\n");
+
+    // 4) Optional: execute using plain JdbcTemplate with explicit types
+    if (executeWithTypes) {
+        JdbcTemplate jt = (JdbcTemplate) np.getJdbcOperations();
+        jt.update(expandedSql, values, types);   // skips Oracle param metadata entirely
+    } else {
+        np.update(namedSql, src);                // normal path
+    }
+}
+
+----------------------------
+
+String namedSql = sql(name: "SQL_SAVE_DATASET_SETTINGS"); // your existing lookup
+MapSqlParameterSource src =
+    datasetSetting.getMapSqlParameterSource()
+        .addValues(datasetSetting.getEntitlement().orElseGet(DatasetSetting.Entitlement::new).getMapSqlParameterSource().getValues())
+        .addValue("dataset", dataset);
+
+// use the debugger once:
+debugAndExecute(namedParameterJdbcTemplate, namedSql, src, /*executeWithTypes=*/true);
+
+// or, after you’re done debugging, just:
+namedParameterJdbcTemplate.update(namedSql, src);
+
+---------------------------
