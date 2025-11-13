@@ -1,0 +1,134 @@
+private static final int[] SAVE_DATASET_SETTING_TYPES = new int[] {
+    Types.VARCHAR,   //  1 dataset
+    Types.VARCHAR,   //  2 dataset_type
+    Types.VARCHAR,   //  3 dataset_provider
+    Types.CHAR,      //  4 flg_user_managed
+    Types.VARCHAR,   //  5 owner_soeid
+    Types.VARCHAR,   //  6 entitlement_group_ui
+    Types.VARCHAR,   //  7 entitlement_group_api
+    Types.VARCHAR,   //  8 start_date (TO_DATE)
+    Types.VARCHAR,   //  9 end_date   (TO_DATE)
+    Types.CHAR,      // 10 flg_deleted
+    Types.CHAR,      // 11 flg_support_sentence_label
+    Types.CHAR,      // 12 flg_support_caching
+    Types.VARCHAR,   // 13 batch_cfg_name
+    Types.CHAR,      // 14 flg_cloned
+    Types.VARCHAR,   // 15 modified_by
+    Types.VARCHAR,   // 16 modified_time (TO_TIMESTAMP)
+    Types.CHAR,      // 17 flg_is_copy_msg_src
+    Types.CHAR,      // 18 flg_is_copy_msg_tgt
+    Types.VARCHAR,   // 19 description
+    Types.CHAR,      // 20 flg_enable_api_access
+    Types.CHAR,      // 21 flg_enable_ui_access
+    Types.CHAR,      // 22 flg_msg_history_enabled
+    Types.VARCHAR,   // 23 header_field
+    Types.VARCHAR,   // 24 info_field
+    Types.CHAR,      // 25 flg_tov
+    Types.CHAR       // 26 flg_indexed
+};
+
+
+
+====================
+
+protected void saveDatasetSettings(DatasetSetting datasetSetting) {
+
+    // --- 0. Preprocessing (your original code remains unchanged)
+    List<DatasetSettingField> columns = datasetSetting.getColumns();
+    for (int i = 0; i < columns.size(); i++) {
+        DatasetSettingField field = columns.get(i);
+
+        if (field.getSetting() == null) {
+            switch (field.getFieldDataType()) {
+                case "timestamp":
+                    field.setUiSettings(
+                        objectMapper.createObjectNode()
+                            .put("filter_type", "Date"));
+                    break;
+
+                default:
+                    field.setUiSettings(
+                        objectMapper.createObjectNode()
+                            .put("filter_type", "agSetColumnFilter"));
+            }
+        }
+    }
+
+    // --- 1. Build parameter source (same as before)
+    String dataset = datasetSetting.getDataset();
+    MapSqlParameterSource params =
+            datasetSetting.getMapSqlParameterSource()
+                .addValues(datasetSetting.getEntitlement()
+                    .orElseGet(DatasetSetting.Entitlement::new)
+                    .getMapSqlParameterSource()
+                    .getValues())
+                .addValue("dataset", dataset);
+
+    // --- 2. Expand named parameters into positional SQL
+    String namedSql = sql(name: "SQL_SAVE_DATASET_SETTINGS");  // your named SQL key
+
+    ParsedSql parsed = NamedParameterUtils.parseSqlStatement(namedSql);
+    String expandedSql = NamedParameterUtils.substituteNamedParameters(parsed, params);
+    Object[] values = NamedParameterUtils.buildValueArray(parsed, params, null);
+
+    // --- 3. Validate '?', values[], and types[] sizes match
+    int qCount = (int) expandedSql.chars().filter(c -> c == '?').count();
+    if (qCount != values.length || values.length != SAVE_DATASET_SETTING_TYPES.length) {
+        log.error("MERGE bind count mismatch. ?={}, values={}, types={}",
+                qCount, values.length, SAVE_DATASET_SETTING_TYPES.length);
+        throw new IllegalStateException("Invalid MERGE parameter alignment");
+    }
+
+    // --- 4. Log bindings for debugging
+    if (log.isDebugEnabled()) {
+        log.debug("Expanded SQL:\n{}", expandedSql);
+        for (int i = 0; i < values.length; i++) {
+            log.debug("param #{}  type={}({})  value={}",
+                    i + 1,
+                    JdbcUtils.resolveTypeName(SAVE_DATASET_SETTING_TYPES[i]),
+                    SAVE_DATASET_SETTING_TYPES[i],
+                    values[i]);
+        }
+    }
+
+    // --- 5. Execute MERGE using JdbcTemplate and forced JDBC types
+    jdbcTemplate.update(expandedSql, values, SAVE_DATASET_SETTING_TYPES);
+
+
+    // --- 6. Continue with your original logic (unchanged)
+
+    // update / delete / upsert for UI settings
+    columns.forEach(field -> {
+        MapSqlParameterSource p = field.getMapSqlParameterSource();
+        p.addValue("dataset", dataset);
+
+        if (field.getOperation() == DatasetSetting.Operation.DELETE) {
+            namedParameterJdbcTemplate.update(sql(name: "sql_delete_dataset_ui_settings"), p);
+            namedParameterJdbcTemplate.update(sql(name: "sql_delete_dataset_schema"), p);
+        } else {
+            namedParameterJdbcTemplate.update(sql(name: "SQL_SAVE_DATASET_SCHEMA"), p);
+            namedParameterJdbcTemplate.update(sql(name: "SQL_SAVE_DATASET_UI_SETTINGS"), p);
+        }
+    });
+
+    // Classifier updates
+    datasetSetting.getClassifiers().forEach(classifier -> {
+        MapSqlParameterSource p = new MapSqlParameterSource();
+        p.addValue("dataset", dataset);
+        p.addValue("classifier_name", classifier);
+        namedParameterJdbcTemplate.update(sql(name: "SQL_SAVE_CLASSIFIER_LIST"), p);
+    });
+
+    // Entity schema updates
+    datasetSetting.getEntitySchemas().forEach(schema -> {
+        MapSqlParameterSource p = schema.getMapSqlParameterSource();
+        p.addValue("dataset", dataset);
+
+        if (schema.getOperation() == DatasetSetting.Operation.DELETE) {
+            p.addValue("delete_operation", DatasetSetting.Operation.DELETE);
+            namedParameterJdbcTemplate.update(sql(name: "sql_delete_entity_schema"), p);
+        } else {
+            namedParameterJdbcTemplate.update(sql(name: "SQL_SAVE_ENTITY_SCHEMA_LIST"), p);
+        }
+    });
+}
