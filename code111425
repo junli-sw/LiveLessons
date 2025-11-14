@@ -1,0 +1,47 @@
+// For MERGE INTO CFG_DF_DATASET_SCHEMA (SQL_SAVE_DATASET_SCHEMA)
+private static final int[] SCHEMA_TYPES = new int[] {
+    Types.VARCHAR,  // 1 dataset
+    Types.VARCHAR,  // 2 field_name
+    Types.VARCHAR,  // 3 field_data_type
+    Types.VARCHAR,  // 4 field_label
+    Types.CHAR,     // 5 flg_editable
+    Types.CHAR,     // 6 flg_user_managed
+    Types.CHAR,     // 7 flg_is_sentence_field
+    Types.VARCHAR   // 8 classifier_name
+};
+
+=============================
+
+} else {
+    // upsert operation for dataset schema (typed MERGE)
+    String schemaNamedSql = sql(name: "SQL_SAVE_DATASET_SCHEMA");
+
+    // expand named params -> positional SQL + values[]
+    ParsedSql schemaParsed = NamedParameterUtils.parseSqlStatement(schemaNamedSql);
+    String schemaExpandedSql = NamedParameterUtils.substituteNamedParameters(schemaParsed, params);
+    Object[] schemaValues = NamedParameterUtils.buildValueArray(schemaParsed, params, null);
+
+    int qCount = (int) schemaExpandedSql.chars().filter(ch -> ch == '?').count();
+    if (qCount != schemaValues.length || schemaValues.length != SCHEMA_TYPES.length) {
+        log.error("CFG_DF_DATASET_SCHEMA MERGE bind mismatch: ?={}, values={}, types={}",
+                qCount, schemaValues.length, SCHEMA_TYPES.length);
+        throw new IllegalStateException("Bind count mismatch for SQL_SAVE_DATASET_SCHEMA");
+    }
+
+    if (log.isDebugEnabled()) {
+        log.debug("Expanded SQL for dataset schema MERGE:\n{}", schemaExpandedSql);
+        for (int i = 0; i < schemaValues.length; i++) {
+            log.debug("schema param #{} type={}({}) value={}",
+                    i + 1,
+                    JdbcUtils.resolveTypeName(SCHEMA_TYPES[i]),
+                    SCHEMA_TYPES[i],
+                    schemaValues[i]);
+        }
+    }
+
+    // this is the key: execute MERGE with explicit JDBC types
+    jdbcTemplate.update(schemaExpandedSql, schemaValues, SCHEMA_TYPES);
+
+    // UI settings still use NamedParameterJdbcTemplate as before
+    namedParameterJdbcTemplate.update(sql(name: "SQL_SAVE_DATASET_UI_SETTINGS"), params);
+}
