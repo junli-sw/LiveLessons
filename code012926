@@ -13,3 +13,29 @@ if [ -n "$PIDS" ]; then
 else
   echo "No process found on port $PORT"
 fi
+
+===============================================
+
+PORT=4546
+
+PIDS=$(
+  ss -lntpH | awk -v p=":${PORT}" '$4 ~ p {print}' \
+  | grep -oE 'pid=[0-9]+' \
+  | cut -d= -f2 \
+  | sort -u
+)
+
+if [ -n "$PIDS" ]; then
+  echo "Killing processes on port $PORT: $PIDS"
+  kill $PIDS
+  sleep 2
+  # force kill anything still alive
+  for pid in $PIDS; do
+    kill -0 "$pid" 2>/dev/null && kill -9 "$pid"
+  done
+else
+  echo "No process found on port $PORT"
+fi
+
+
+
