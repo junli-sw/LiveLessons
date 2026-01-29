@@ -1,0 +1,15 @@
+PORT=4546
+
+PIDS=$(ss -lntp | awk -v p=":${PORT}" '
+  $4 ~ p && $0 ~ /pid=/ {
+    match($0, /pid=([0-9]+)/, a)
+    print a[1]
+  }
+' | sort -u)
+
+if [ -n "$PIDS" ]; then
+  echo "Killing processes on port $PORT: $PIDS"
+  kill $PIDS
+else
+  echo "No process found on port $PORT"
+fi
