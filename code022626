@@ -113,4 +113,118 @@ for (Map<String, Object> recordDataMap : records) {
 }
 
 jdbcTemplate.batchUpdate(addBatchEntryQuery, batchArgs, argTypes);
-Why this
+
+
+
+
+
+
+
+
+===================
+
+
+@Transactional(propagation = Propagation.MANDATORY)
+private void addBatchConfigEntries(
+        String cfgName,
+        Integer version,
+        Map<String, Map<String, Object>> batchConfigSchemaMap,
+        List<Map<String, Object>> records,
+        String userId) {
+
+    if (records == null || records.isEmpty()) {
+        return;
+    }
+
+    // ----- 1️⃣ Order ENTITY_INFO columns deterministically -----
+    List<Map.Entry<String, Map<String, Object>>> schemaOrdered =
+            batchConfigSchemaMap.entrySet().stream()
+                    .sorted((a, b) -> {
+                        Object sa = a.getValue().get("entity_info_seq_num");
+                        Object sb = b.getValue().get("entity_info_seq_num");
+                        if (sa instanceof Number && sb instanceof Number) {
+                            return Integer.compare(
+                                    ((Number) sa).intValue(),
+                                    ((Number) sb).intValue());
+                        }
+                        return a.getKey().compareTo(b.getKey());
+                    })
+                    .toList();
+
+    int entityCount = schemaOrdered.size();
+
+    // ----- 2️⃣ Build SQL -----
+    StringBuilder sql = new StringBuilder();
+    sql.append("INSERT INTO CFG_DF_BATCH_CONFIG_ENTRIES(")
+            .append("CFG_NAME, VERSION, ENTRY_SEQ_NUM, ");
+
+    for (int i = 0; i < entityCount; i++) {
+        sql.append("ENTITY_INFO_").append(i + 1).append(", ");
+    }
+
+    sql.append("REASON, STATUS, MODIFIED_BY, MODIFIED_TIME) ")
+       .append("SELECT ?, ?, NVL(MAX(ENTRY_SEQ_NUM), 0) + 1, ");
+
+    sql.append(String.join(", ",
+            java.util.Collections.nCopies(entityCount, "?")));
+
+    sql.append(", ?, ?, ?, sysdate ")
+       .append("FROM CFG_DF_BATCH_CONFIG_ENTRIES ")
+       .append("WHERE CFG_NAME = ? AND VERSION = ?");
+
+    String addBatchEntryQuery = sql.toString();
+
+    logger.info("Add Batch Entry Query: {}", addBatchEntryQuery);
+
+    // ----- 3️⃣ Build argTypes -----
+    int[] argTypes = new int[entityCount + 7];
+    int p = 0;
+
+    argTypes[p++] = Types.VARCHAR;   // CFG_NAME (SELECT)
+    argTypes[p++] = Types.NUMERIC;   // VERSION
+
+    for (int i = 0; i < entityCount; i++) {
+        argTypes[p++] = Types.NVARCHAR;  // ENTITY_INFO_i
+    }
+
+    argTypes[p++] = Types.VARCHAR;   // REASON
+    argTypes[p++] = Types.VARCHAR;   // STATUS
+    argTypes[p++] = Types.VARCHAR;   // MODIFIED_BY
+
+    argTypes[p++] = Types.VARCHAR;   // WHERE CFG_NAME
+    argTypes[p++] = Types.NUMERIC;   // WHERE VERSION
+
+    // ----- 4️⃣ Build batch args -----
+    List<Object[]> batchArgs = new ArrayList<>(records.size());
+
+    for (Map<String, Object> record : records) {
+
+        Object[] args = new Object[entityCount + 7];
+        int idx = 0;
+
+        args[idx++] = cfgName;
+        args[idx++] = version;
+
+        for (Map.Entry<String, Map<String, Object>> entry : schemaOrdered) {
+            String fieldName = entry.getKey();
+            Object v = record.get(fieldName);
+            args[idx++] = (v == null) ? null : String.valueOf(v);
+        }
+
+        args[idx++] = record.get("reason") == null
+                ? null : String.valueOf(record.get("reason"));
+
+        args[idx++] = record.get("status") == null
+                ? null : String.valueOf(record.get("status"));
+
+        args[idx++] = userId;
+
+        args[idx++] = cfgName;
+        args[idx++] = version;
+
+        batchArgs.add(args);
+    }
+
+    // ----- 5️⃣ Execute typed batch -----
+    jdbcTemplate.batchUpdate(addBatchEntryQuery, batchArgs, argTypes);
+}
