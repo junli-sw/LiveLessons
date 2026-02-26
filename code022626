@@ -1,0 +1,116 @@
+1) Make the entity-info column order deterministic
+
+If batchConfigSchemaMap is a HashMap, order is not guaranteed. Use a stable ordering (recommended: sort by entity_info_seq_num or by key).
+
+private List<Map.Entry<String, Map<String, Object>>> orderedEntityInfoSchema(
+        Map<String, Map<String, Object>> batchConfigSchemaMap) {
+
+    return batchConfigSchemaMap.entrySet().stream()
+            // if schema has an "entity_info_seq_num" field, sort by it; otherwise sort by key
+            .sorted((a, b) -> {
+                Object sa = a.getValue().get("entity_info_seq_num");
+                Object sb = b.getValue().get("entity_info_seq_num");
+                if (sa instanceof Number && sb instanceof Number) {
+                    return Integer.compare(((Number) sa).intValue(), ((Number) sb).intValue());
+                }
+                return a.getKey().compareTo(b.getKey());
+            })
+            .toList();
+}
+2) Build SQL using that same order
+List<Map.Entry<String, Map<String, Object>>> schemaOrdered = orderedEntityInfoSchema(batchConfigSchemaMap);
+
+StringBuilder sql = new StringBuilder();
+sql.append("INSERT INTO CFG_DF_BATCH_CONFIG_ENTRIES(CFG_NAME, VERSION, ENTRY_SEQ_NUM, ");
+
+for (int i = 0; i < schemaOrdered.size(); i++) {
+    int seq = i + 1; // ENTITY_INFO_1..N
+    sql.append("ENTITY_INFO_").append(seq).append(", ");
+}
+sql.append("REASON, STATUS, MODIFIED_BY, MODIFIED_TIME) ");
+
+sql.append("SELECT ?, ?, NVL(MAX(ENTRY_SEQ_NUM), 0) + 1, ");
+sql.append(String.join(", ", java.util.Collections.nCopies(schemaOrdered.size(), "?")));
+sql.append(", ?, ?, ?, sysdate ");
+sql.append("FROM CFG_DF_BATCH_CONFIG_ENTRIES WHERE CFG_NAME = ? AND VERSION = ?");
+String addBatchEntryQuery = sql.toString();
+3) Build argTypes once (length = N+7)
+
+Based on your table screenshot:
+
+CFG_NAME = VARCHAR2 → Types.VARCHAR
+
+VERSION = NUMBER → Types.NUMERIC (or Types.INTEGER if always int)
+
+ENTITY_INFO_* = NVARCHAR2 → Types.NVARCHAR
+
+REASON = VARCHAR2 → Types.VARCHAR
+
+STATUS = VARCHAR2 → Types.VARCHAR
+
+MODIFIED_BY = VARCHAR2 → Types.VARCHAR
+
+final WHERE CFG_NAME/VERSION same as first two
+
+int n = schemaOrdered.size();
+int total = n + 7;
+
+int[] argTypes = new int[total];
+int p = 0;
+
+argTypes[p++] = java.sql.Types.VARCHAR;  // CFG_NAME
+argTypes[p++] = java.sql.Types.NUMERIC;  // VERSION
+
+for (int i = 0; i < n; i++) {
+    argTypes[p++] = java.sql.Types.NVARCHAR; // ENTITY_INFO_i
+}
+
+argTypes[p++] = java.sql.Types.VARCHAR;  // REASON
+argTypes[p++] = java.sql.Types.VARCHAR;  // STATUS
+argTypes[p++] = java.sql.Types.VARCHAR;  // MODIFIED_BY
+
+argTypes[p++] = java.sql.Types.VARCHAR;  // WHERE CFG_NAME
+argTypes[p++] = java.sql.Types.NUMERIC;  // WHERE VERSION
+4) Build each Object[] args in the exact same order
+
+Make sure entity_info binds are Strings (Oracle NVARCHAR2 expects String). Convert null-safe.
+
+private Object[] buildBatchEntryArgs(
+        String cfgName,
+        Integer version,
+        String userId,
+        List<Map.Entry<String, Map<String, Object>>> schemaOrdered,
+        Map<String, Object> record) {
+
+    int n = schemaOrdered.size();
+    Object[] args = new Object[n + 7];
+    int p = 0;
+
+    args[p++] = cfgName;
+    args[p++] = version;
+
+    // ENTITY_INFO_1..N
+    for (Map.Entry<String, Map<String, Object>> e : schemaOrdered) {
+        String fieldName = e.getKey(); // your record uses this key
+        Object v = record.get(fieldName);
+        args[p++] = (v == null) ? null : String.valueOf(v);
+    }
+
+    args[p++] = record.get("reason") == null ? null : String.valueOf(record.get("reason"));
+    args[p++] = record.get("status") == null ? null : String.valueOf(record.get("status"));
+    args[p++] = userId;
+
+    // WHERE CFG_NAME / VERSION
+    args[p++] = cfgName;
+    args[p++] = version;
+
+    return args;
+}
+5) Call batchUpdate
+List<Object[]> batchArgs = new ArrayList<>(records.size());
+for (Map<String, Object> recordDataMap : records) {
+    batchArgs.add(buildBatchEntryArgs(cfgName, version, userId, schemaOrdered, recordDataMap));
+}
+
+jdbcTemplate.batchUpdate(addBatchEntryQuery, batchArgs, argTypes);
+Why this
