@@ -228,3 +228,98 @@ private void addBatchConfigEntries(
     // ----- 5️⃣ Execute typed batch -----
     jdbcTemplate.batchUpdate(addBatchEntryQuery, batchArgs, argTypes);
 }
+
+
+
+
+==============
+
+
+@Transactional(propagation = Propagation.MANDATORY)
+private void updBatchConfigEntries(
+        String cfgName,
+        Integer version,
+        Map<String, Map<String, Object>> batchConfigSchemaMap,
+        List<Map<String, Object>> records,
+        String userId
+) {
+    if (records == null || records.isEmpty()) {
+        return;
+    }
+
+    // ---------- Build paramsList ----------
+    List<Object[]> paramsList = new ArrayList<>(records.size());
+
+    for (Map<String, Object> recordDataMap : records) {
+        if (!recordDataMap.containsKey("_id") || !StringUtils.hasText(String.valueOf(recordDataMap.get("_id")))) {
+            logger.error("Missing one or more mandatory fields. Record: {}", recordDataMap);
+            throw new InvalidDataException("Mandatory fields missing in one or more records");
+        }
+
+        // entity info params in correct order (ENTITY_INFO_1..N)
+        List<Object> batchEntryParams = batchEntryEntityInfoToDBCols(batchConfigSchemaMap, recordDataMap);
+
+        // then REASON, STATUS, MODIFIED_BY
+        batchEntryParams.add(recordDataMap.get("reason"));  // VARCHAR2
+        batchEntryParams.add(recordDataMap.get("status"));  // VARCHAR2
+        batchEntryParams.add(userId);                       // VARCHAR2
+
+        // WHERE CFG_NAME, VERSION, ENTRY_SEQ_NUM
+        batchEntryParams.add(cfgName);                      // VARCHAR2
+        batchEntryParams.add(version);                      // NUMBER
+        batchEntryParams.add(recordDataMap.get("_id"));     // NUMBER (ENTRY_SEQ_NUM)
+
+        paramsList.add(batchEntryParams.toArray());
+    }
+
+    // ---------- Build UPDATE SQL ----------
+    // IMPORTANT: batchConfigSchemaMap.values() must be ordered by entity_info_seq_num
+    StringBuilder sql = new StringBuilder();
+    sql.append("UPDATE CFG_DF_BATCH_CONFIG_ENTRIES SET ");
+
+    boolean first = true;
+    for (Map<String, Object> fieldSchema : batchConfigSchemaMap.values()) {
+        String entityInfoCol = PREFIX_ENTITY_INFO + fieldSchema.get("entity_info_seq_num"); // ENTITY_INFO_1..N
+        if (!first) sql.append(", ");
+        first = false;
+        // NVL(?, col) means "only overwrite when param is non-null"
+        sql.append(entityInfoCol).append(" = NVL(?, ").append(entityInfoCol).append(")");
+    }
+
+    // trailing columns
+    if (!first) sql.append(", ");
+    sql.append("REASON = NVL(?, REASON), ");
+    sql.append("STATUS = NVL(?, STATUS), ");
+    sql.append("MODIFIED_BY = ?, ");
+    sql.append("MODIFIED_TIME = SYSDATE ");
+    sql.append("WHERE CFG_NAME = ? AND VERSION = ? AND ENTRY_SEQ_NUM = ?");
+
+    String updBatchEntryQuery = sql.toString();
+    logger.info("Update Batch Entry Query: {}", updBatchEntryQuery);
+
+    // ---------- Build paramTypes ----------
+    int entityCount = batchConfigSchemaMap.size();
+    // entityCount (ENTITY_INFO_*) + 1(reason) + 1(status) + 1(modified_by) + 1(cfg_name) + 1(version) + 1(entry_seq_num)
+    int totalParams = entityCount + 6;
+
+    int[] paramTypes = new int[totalParams];
+    int p = 0;
+
+    // ENTITY_INFO_* are NVARCHAR2
+    for (int i = 0; i < entityCount; i++) {
+        paramTypes[p++] = java.sql.Types.NVARCHAR;
+    }
+
+    // REASON, STATUS, MODIFIED_BY are VARCHAR2
+    paramTypes[p++] = java.sql.Types.VARCHAR; // reason
+    paramTypes[p++] = java.sql.Types.VARCHAR; // status
+    paramTypes[p++] = java.sql.Types.VARCHAR; // modified_by
+
+    // WHERE CFG_NAME (VARCHAR2), VERSION (NUMBER), ENTRY_SEQ_NUM (NUMBER)
+    paramTypes[p++] = java.sql.Types.VARCHAR; // cfg_name
+    paramTypes[p++] = java.sql.Types.NUMERIC; // version
+    paramTypes[p++] = java.sql.Types.NUMERIC; // entry_seq_num
+
+    // ---------- Execute ----------
+    jdbcTemplate.batchUpdate(updBatchEntryQuery, paramsList, paramTypes);
+}
