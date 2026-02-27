@@ -355,3 +355,19 @@ private Map<String, Object> getBatchConfigSummByStatus(String cfgName, String st
         </dependency>
     </dependencies>
 </dependencyManagement>
+
+
+public static String set(String correlationId) {
+    String id = (correlationId == null || correlationId.isBlank())
+            ? ShortUUID.getRandomShortID()
+            : correlationId;
+
+    MDC.put(TRACKING_ID, id);
+    return id;
+}
+
+
+Logger.info("Checking if user is member of CV groups '{}'",
+        String.join(", ", cvUserGroups));
+
+
