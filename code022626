@@ -323,3 +323,24 @@ private void updBatchConfigEntries(
     // ---------- Execute ----------
     jdbcTemplate.batchUpdate(updBatchEntryQuery, paramsList, paramTypes);
 }
+
+
+============
+import org.springframework.dao.IncorrectResultSizeDataAccessException;
+
+private Map<String, Object> getBatchConfigSummByStatus(String cfgName, String status) {
+    try {
+        Map<String, Object> cfgSummaryMap =
+            jdbcTemplate.queryForMap(SQL_GET_BATCH_CONFIG_SUMM_BY_STATUS, cfgName, status);
+
+        cfgSummaryMap.compute("VERSION",
+            (String k, Object v) -> ((BigDecimal) v).intValue());
+
+        return cfgSummaryMap;
+
+    } catch (IncorrectResultSizeDataAccessException ex) {   // <-- change here
+        logger.error("No config record found for config name: {} and status: {}. Returning null",
+                     cfgName, status, ex);
+        return null;
+    }
+}
