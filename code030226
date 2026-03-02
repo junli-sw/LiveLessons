@@ -1,22 +1,25 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <configuration>
 
-    <!-- Console appender (only used if explicitly requested) -->
+    <!-- CONSOLE appender always defined -->
     <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
         <encoder>
             <pattern>[%d{yyyyMMdd HH:mm:ss.SSS}][%-5p][%t][%c{1}:%L] %m%n</pattern>
         </encoder>
     </appender>
 
-    <!-- Define FILE appender only if requested -->
+    <!-- If logback.appenders contains FILE, define FILE appender -->
+    <condition class="ch.qos.logback.core.boolex.ExpressionPropertyCondition">
+        <!-- Note: & must be written as &amp; in XML -->
+        <expression>isDefined("logback.appenders") &amp;&amp; propertyContains("logback.appenders","FILE")</expression>
+    </condition>
     <if>
-        <condition>isDefined("logback.appenders") &amp;&amp; property("logback.appenders").contains("FILE")</condition>
         <then>
             <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
                 <file>${LOG_FILE_NAME}</file>
 
                 <rollingPolicy class="ch.qos.logback.core.rolling.FixedWindowRollingPolicy">
-                    <!-- FIXED: removed .hlog -->
+                    <!-- removes .hlog; results: xxx.log.1, xxx.log.2, ... -->
                     <fileNamePattern>${LOG_FILE_NAME}.%i</fileNamePattern>
                     <minIndex>1</minIndex>
                     <maxIndex>20</maxIndex>
@@ -33,27 +36,33 @@
         </then>
     </if>
 
+    <!-- Root logger: default to CONSOLE if logback.appenders is NOT set -->
     <root level="INFO">
 
-        <!-- Default to CONSOLE if property not set -->
+        <condition class="ch.qos.logback.core.boolex.IsPropertyNullCondition">
+            <key>logback.appenders</key>
+        </condition>
         <if>
-            <condition>!isDefined("logback.appenders")</condition>
             <then>
                 <appender-ref ref="CONSOLE"/>
             </then>
         </if>
 
         <!-- Attach FILE if requested -->
+        <condition class="ch.qos.logback.core.boolex.ExpressionPropertyCondition">
+            <expression>isDefined("logback.appenders") &amp;&amp; propertyContains("logback.appenders","FILE")</expression>
+        </condition>
         <if>
-            <condition>isDefined("logback.appenders") &amp;&amp; property("logback.appenders").contains("FILE")</condition>
             <then>
                 <appender-ref ref="FILE"/>
             </then>
         </if>
 
         <!-- Attach CONSOLE if requested -->
+        <condition class="ch.qos.logback.core.boolex.ExpressionPropertyCondition">
+            <expression>isDefined("logback.appenders") &amp;&amp; propertyContains("logback.appenders","CONSOLE")</expression>
+        </condition>
         <if>
-            <condition>isDefined("logback.appenders") &amp;&amp; property("logback.appenders").contains("CONSOLE")</condition>
             <then>
                 <appender-ref ref="CONSOLE"/>
             </then>
