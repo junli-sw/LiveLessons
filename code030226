@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+
+    <!-- Console appender (always available) -->
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>[%d{yyyyMMdd HH:mm:ss.SSS}][%-5p][%t][%c{1}:%L] %m%n</pattern>
+        </encoder>
+    </appender>
+
+    <!-- Decide which appenders to use on root -->
+    <!-- If logback.appenders is not set, default to CONSOLE -->
+    <if>
+        <condition>isDefined("logback.appenders")</condition>
+        <then>
+            <!-- Build root appender list based on logback.appenders -->
+            <property name="USE_CONSOLE" value='${logback.appenders.contains("CONSOLE")}'/>
+            <property name="USE_FILE" value='${logback.appenders.contains("FILE")}'/>
+        </then>
+        <else>
+            <property name="USE_CONSOLE" value="true"/>
+            <property name="USE_FILE" value="false"/>
+        </else>
+    </if>
+
+    <!-- File appender (only define it if needed) -->
+    <if>
+        <condition>'${USE_FILE}' == 'true'</condition>
+        <then>
+            <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+                <file>${LOG_FILE_NAME}</file>
+
+                <rollingPolicy class="ch.qos.logback.core.rolling.FixedWindowRollingPolicy">
+                    <fileNamePattern>${LOG_FILE_NAME}.%i.log</fileNamePattern>
+                    <minIndex>1</minIndex>
+                    <maxIndex>20</maxIndex>
+                </rollingPolicy>
+
+                <triggeringPolicy class="ch.qos.logback.core.rolling.SizeBasedTriggeringPolicy">
+                    <maxFileSize>100MB</maxFileSize>
+                </triggeringPolicy>
+
+                <encoder>
+                    <pattern>[%d{yyyyMMdd HH:mm:ss.SSS}][%-5p][%t][%c{1}:%L] %m%n</pattern>
+                </encoder>
+            </appender>
+        </then>
+    </if>
+
+    <!-- Single root definition -->
+    <root level="INFO">
+        <if>
+            <condition>'${USE_CONSOLE}' == 'true'</condition>
+            <then>
+                <appender-ref ref="CONSOLE"/>
+            </then>
+        </if>
+
+        <if>
+            <condition>'${USE_FILE}' == 'true'</condition>
+            <then>
+                <appender-ref ref="FILE"/>
+            </then>
+        </if>
+    </root>
+
+</configuration>
