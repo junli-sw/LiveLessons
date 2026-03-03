@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <configuration>
 
-    <!-- ========= Appenders ========= -->
+    <!-- ADD THIS LINE FOR DEBUGGING -->
+    <statusListener class="ch.qos.logback.core.status.OnConsoleStatusListener"/>
 
     <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
         <encoder>
@@ -9,18 +10,12 @@
         </encoder>
     </appender>
 
-    <!-- Define FILE appender only when requested -->
-    <condition name="WANT_FILE" class="ch.qos.logback.core.boolex.ExpressionPropertyCondition">
-        <expression>isDefined("logback.appenders") &amp;&amp; property("logback.appenders").contains("FILE")</expression>
-    </condition>
-
-    <if conditionRef="WANT_FILE">
+    <if condition='isDefined("logback.appenders") &amp;&amp; property("logback.appenders").contains("FILE")'>
         <then>
             <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
                 <file>${LOG_FILE_NAME}</file>
 
                 <rollingPolicy class="ch.qos.logback.core.rolling.FixedWindowRollingPolicy">
-                    <!-- rolled files: xxx.log.1, xxx.log.2, ... -->
                     <fileNamePattern>${LOG_FILE_NAME}.%i</fileNamePattern>
                     <minIndex>1</minIndex>
                     <maxIndex>20</maxIndex>
@@ -37,29 +32,10 @@
         </then>
     </if>
 
-    <!-- ========= Root selection (ONE root, chosen at top level) ========= -->
-
-    <condition name="HAS_APPENDERS" class="ch.qos.logback.core.boolex.ExpressionPropertyCondition">
-        <expression>isDefined("logback.appenders")</expression>
-    </condition>
-
-    <condition name="WANT_CONSOLE" class="ch.qos.logback.core.boolex.ExpressionPropertyCondition">
-        <expression>isDefined("logback.appenders") &amp;&amp; property("logback.appenders").contains("CONSOLE")</expression>
-    </condition>
-
-    <condition name="WANT_BOTH" class="ch.qos.logback.core.boolex.ExpressionPropertyCondition">
-        <expression>
-            isDefined("logback.appenders")
-            &amp;&amp; property("logback.appenders").contains("FILE")
-            &amp;&amp; property("logback.appenders").contains("CONSOLE")
-        </expression>
-    </condition>
-
-    <!-- If property not set -> default CONSOLE -->
-    <if conditionRef="HAS_APPENDERS">
+    <if condition='isDefined("logback.appenders")'>
         <then>
 
-            <if conditionRef="WANT_BOTH">
+            <if condition='property("logback.appenders").contains("FILE") &amp;&amp; property("logback.appenders").contains("CONSOLE")'>
                 <then>
                     <root level="INFO">
                         <appender-ref ref="FILE"/>
@@ -68,7 +44,7 @@
                 </then>
                 <else>
 
-                    <if conditionRef="WANT_FILE">
+                    <if condition='property("logback.appenders").contains("FILE")'>
                         <then>
                             <root level="INFO">
                                 <appender-ref ref="FILE"/>
@@ -76,14 +52,13 @@
                         </then>
                         <else>
 
-                            <if conditionRef="WANT_CONSOLE">
+                            <if condition='property("logback.appenders").contains("CONSOLE")'>
                                 <then>
                                     <root level="INFO">
                                         <appender-ref ref="CONSOLE"/>
                                     </root>
                                 </then>
                                 <else>
-                                    <!-- Property set but doesn't contain FILE/CONSOLE -->
                                     <root level="INFO">
                                         <appender-ref ref="CONSOLE"/>
                                     </root>
