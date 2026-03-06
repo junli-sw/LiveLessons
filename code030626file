@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration scan="false">
+
+    <appender name="FILE" class="ch.qos.logback.core.FileAppender">
+        <file>${LOG_FILE}</file>
+        <encoder>
+            <pattern>[%d{yyyyMMdd HH:mm:ss.SSS}][%-5p][%t][%c{1}:%L][%X{trackingId}] %m%n</pattern>
+        </encoder>
+    </appender>
+
+    <root level="INFO">
+        <appender-ref ref="FILE"/>
+    </root>
+
+    <logger name="org.jboss.logging" level="INFO" additivity="false">
+        <appender-ref ref="FILE"/>
+    </logger>
+
+</configuration>
