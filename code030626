@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration scan="false">
+
+    <condition name="HAS_LOG_FILE"
+               class="ch.qos.logback.core.boolex.ExpressionPropertyCondition">
+        <expression>isDefined("LOG_FILE") &amp;&amp; !property("LOG_FILE").isEmpty()</expression>
+    </condition>
+
+    <if conditionRef="HAS_LOG_FILE">
+        <then>
+            <appender name="FILE" class="ch.qos.logback.core.FileAppender">
+                <file>${LOG_FILE}</file>
+                <encoder>
+                    <pattern>[%d{yyyyMMdd HH:mm:ss.SSS}][%-5p][%t][%c{1}:%L][%X{trackingId}] %m%n</pattern>
+                </encoder>
+            </appender>
+
+            <root level="INFO">
+                <appender-ref ref="FILE"/>
+            </root>
+        </then>
+        <else>
+            <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+                <encoder>
+                    <pattern>%d{dd-MM-yyyy HH:mm:ss.SSS} [%thread] %-5level %logger{15} %X{trackingId} - %msg%n</pattern>
+                </encoder>
+            </appender>
+
+            <root level="INFO">
+                <appender-ref ref="STDOUT"/>
+            </root>
+        </else>
+    </if>
+
+    <logger name="org.jboss.logging" level="INFO" additivity="false">
+        <appender-ref ref="STDOUT"/>
+    </logger>
+
+</configuration>
