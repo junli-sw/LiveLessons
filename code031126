@@ -1,0 +1,252 @@
+package com.citi.ripcurl.citinlpdataflow.beservices.dao;
+
+import com.citi.ripcurl.citinlpdataflow.beservices.dao.models.BatchConfigEntry;
+import com.citi.ripcurl.citinlpdataflow.beservices.dao.models.DatasetSearchIndex;
+import com.citi.ripcurl.citinlpdataflow.beservices.dao.models.DatasetSetting;
+import co.elastic.clients.elasticsearch._types.FieldValue;
+import co.elastic.clients.elasticsearch._types.SortOptions;
+import co.elastic.clients.elasticsearch._types.aggregations.Aggregate;
+import co.elastic.clients.elasticsearch._types.aggregations.Aggregation;
+import co.elastic.clients.elasticsearch._types.query_dsl.Query;
+import co.elastic.clients.json.JsonData;
+import jakarta.annotation.PostConstruct;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.elasticsearch.client.elc.ElasticsearchAggregations;
+import org.springframework.data.elasticsearch.client.elc.NativeQuery;
+import org.springframework.data.elasticsearch.client.elc.NativeQueryBuilder;
+import org.springframework.data.elasticsearch.core.ElasticsearchOperations;
+import org.springframework.data.elasticsearch.core.SearchHit;
+import org.springframework.data.elasticsearch.core.SearchHits;
+import org.springframework.data.elasticsearch.core.mapping.IndexCoordinates;
+import org.springframework.data.elasticsearch.core.query.FetchSourceFilter;
+import org.springframework.data.elasticsearch.core.query.Query.PointInTime;
+import org.springframework.stereotype.Component;
+
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Spliterator;
+import java.util.Spliterators;
+import java.util.function.Consumer;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
+import java.util.stream.StreamSupport;
+
+@Component
+public class ChatSearchIndexDao {
+
+    private static final String DATE_PATTERN = "yyyy-MM-dd";
+    private static final String[] SOURCE_INCLUDES = {"id", "mgd_seg_15"};
+
+    private final ElasticsearchOperations esOperations;
+    private IndexCoordinates chatIndex;
+
+    @Value("${be.services.dao.chat-search-index.name:nbg_chat_agg_metadata_all}")
+    private String chatSearchIndexName;
+
+    public ChatSearchIndexDao(ElasticsearchOperations esOperations) {
+        this.esOperations = esOperations;
+    }
+
+    @PostConstruct
+    void init() {
+        this.chatIndex = IndexCoordinates.of(chatSearchIndexName);
+    }
+
+    public Stream<DatasetSearchIndex> getChatDataSearchIndices(DatasetSetting datasetSetting) {
+        NativeQuery query = baseQueryBuilder(datasetSetting)
+                .withSort(Sort.by("id"))
+                .withTrackTotalHits(false)
+                .withSourceFilter(new FetchSourceFilter(SOURCE_INCLUDES, null))
+                .build();
+
+        return StreamSupport.stream(
+                new Spliterators.AbstractSpliterator<DatasetSearchIndex>(Long.MAX_VALUE, Spliterator.ORDERED) {
+                    private Iterator<SearchHit<DatasetSearchIndex>> searchHitIterator;
+
+                    @Override
+                    public boolean tryAdvance(Consumer<? super DatasetSearchIndex> action) {
+                        if (searchHitIterator == null) {
+                            SearchHits<DatasetSearchIndex> searchHits =
+                                    esOperations.search(query, DatasetSearchIndex.class, chatIndex);
+                            searchHitIterator = searchHits.stream().iterator();
+                        }
+
+                        if (!searchHitIterator.hasNext()) {
+                            return false;
+                        }
+
+                        SearchHit<DatasetSearchIndex> searchHit = searchHitIterator.next();
+                        action.accept(searchHit.getContent());
+
+                        if (!searchHitIterator.hasNext()) {
+                            searchHitIterator = null;
+                            query.setSearchAfter(List.copyOf(searchHit.getSortValues()));
+                        }
+
+                        return true;
+                    }
+                },
+                false
+        );
+    }
+
+    public Stream<Map<String, DatasetSearchIndex>> getChatDataSearchIndexByBatch(DatasetSetting datasetSetting) {
+        return getChatDataSearchIndexByBatch(datasetSetting, 10000);
+    }
+
+    public Stream<Map<String, DatasetSearchIndex>> getChatDataSearchIndexByBatch(
+            DatasetSetting datasetSetting, int batchSize) {
+
+        NativeQuery query = baseQueryBuilder(datasetSetting)
+                .withMaxResults(batchSize)
+                .withSort(Sort.by("id"))
+                .withTrackTotalHits(false)
+                .withSourceFilter(new FetchSourceFilter(SOURCE_INCLUDES, null))
+                .build();
+
+        return StreamSupport.stream(
+                new Spliterators.AbstractSpliterator<Map<String, DatasetSearchIndex>>(Long.MAX_VALUE, Spliterator.ORDERED) {
+                    @Override
+                    public boolean tryAdvance(Consumer<? super Map<String, DatasetSearchIndex>> action) {
+                        SearchHits<DatasetSearchIndex> searchHits =
+                                esOperations.search(query, DatasetSearchIndex.class, chatIndex);
+
+                        Iterator<SearchHit<DatasetSearchIndex>> iterator = searchHits.stream().iterator();
+                        Map<String, DatasetSearchIndex> batch = new LinkedHashMap<>();
+
+                        while (iterator.hasNext()) {
+                            SearchHit<DatasetSearchIndex> searchHit = iterator.next();
+                            batch.put(searchHit.getId(), searchHit.getContent());
+
+                            if (!iterator.hasNext()) {
+                                query.setSearchAfter(List.copyOf(searchHit.getSortValues()));
+                            }
+                        }
+
+                        if (batch.isEmpty()) {
+                            return false;
+                        }
+
+                        action.accept(batch);
+                        return true;
+                    }
+                },
+                false
+        );
+    }
+
+    public Map<String, Object> getStats(DatasetSetting datasetSetting) {
+        NativeQuery query = baseQueryBuilder(datasetSetting)
+                .withAggregation("total_document_scanned",
+                        Aggregation.of(a -> a.valueCount(v -> v.field("id"))))
+                .withAggregation("min_batch_date",
+                        Aggregation.of(a -> a.min(m -> m.field("batch_date"))))
+                .withAggregation("max_batch_date",
+                        Aggregation.of(a -> a.max(m -> m.field("batch_date"))))
+                .withMaxResults(0)
+                .build();
+
+        SearchHits<Object> hits = esOperations.search(query, Object.class, chatIndex);
+
+        Map<String, Object> result = new HashMap<>();
+        if (hits.getAggregations() == null) {
+            return result;
+        }
+
+        ElasticsearchAggregations aggregations = (ElasticsearchAggregations) hits.getAggregations();
+
+        Aggregate totalAgg = getAggregate(aggregations, "total_document_scanned");
+        if (totalAgg != null && totalAgg.isValueCount()) {
+            result.put("total_document_scanned", totalAgg.valueCount().value());
+        }
+
+        Aggregate minAgg = getAggregate(aggregations, "min_batch_date");
+        if (minAgg != null && minAgg.isMin()) {
+            result.put("min_batch_date", minAgg.min().valueAsString());
+        }
+
+        Aggregate maxAgg = getAggregate(aggregations, "max_batch_date");
+        if (maxAgg != null && maxAgg.isMax()) {
+            result.put("max_batch_date", maxAgg.max().valueAsString());
+        }
+
+        return result;
+    }
+
+    private NativeQueryBuilder baseQueryBuilder(DatasetSetting datasetSetting) {
+        return NativeQuery.builder().withQuery(buildEsQuery(datasetSetting));
+    }
+
+    private Query buildEsQuery(DatasetSetting datasetSetting) {
+        List<Query> mustQueries = new ArrayList<>();
+        List<Query> mustNotQueries = new ArrayList<>();
+        List<Query> mgdSegShouldQueries = new ArrayList<>();
+
+        mustQueries.add(Query.of(q -> q.range(r -> r
+                .field("batch_date")
+                .gte(JsonData.of(formatDate(datasetSetting.getStartDate())))
+                .lte(JsonData.of(formatDate(datasetSetting.getEndDate())))
+        )));
+
+        datasetSetting.getBatchConfigEntries().stream()
+                .filter(BatchConfigEntry::isInclude)
+                .collect(Collectors.groupingBy(BatchConfigEntry::getFieldName))
+                .forEach((fieldName, entries) -> {
+                    Query termsQuery = termsQuery(fieldName, entries);
+
+                    if (BatchConfigEntry.isMgdSegConfig(fieldName)) {
+                        mgdSegShouldQueries.add(termsQuery);
+                    } else {
+                        mustQueries.add(termsQuery);
+                    }
+                });
+
+        if (!mgdSegShouldQueries.isEmpty()) {
+            mustQueries.add(Query.of(q -> q.bool(b -> b.should(mgdSegShouldQueries))));
+        }
+
+        datasetSetting.getBatchConfigEntries().stream()
+                .filter(entry -> !entry.isInclude())
+                .collect(Collectors.groupingBy(BatchConfigEntry::getFieldName))
+                .forEach((fieldName, entries) -> mustNotQueries.add(termsQuery(fieldName, entries)));
+
+        return Query.of(q -> q.bool(b -> {
+            b.must(mustQueries);
+            if (!mustNotQueries.isEmpty()) {
+                b.mustNot(mustNotQueries);
+            }
+            return b;
+        }));
+    }
+
+    private Query termsQuery(String fieldName, List<BatchConfigEntry> entries) {
+        return Query.of(q -> q.terms(t -> t
+                .field(fieldName)
+                .terms(tv -> tv.value(
+                        entries.stream()
+                                .map(BatchConfigEntry::getFieldValue)
+                                .distinct()
+                                .map(FieldValue::of)
+                                .collect(Collectors.toList())
+                ))
+        ));
+    }
+
+    private String formatDate(java.time.temporal.TemporalAccessor date) {
+        return DateTimeFormatter.ofPattern(DATE_PATTERN).format(date);
+    }
+
+    private Aggregate getAggregate(ElasticsearchAggregations aggregations, String name) {
+        try {
+            return aggregations.aggregationsAsMap().get(name).aggregation().getAggregate();
+        } catch (Exception e) {
+            return null;
+        }
+    }
+}
