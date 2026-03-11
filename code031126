@@ -35,6 +35,7 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 
+@SuppressWarnings("unused")
 @Component
 public class ChatSearchIndexDao {
 
@@ -42,13 +43,15 @@ public class ChatSearchIndexDao {
     private static final String[] SOURCE_INCLUDES = {"id", "mgd_seg_15"};
 
     private final ElasticsearchOperations esOperations;
+    private final String chatSearchIndexName;
+
     private IndexCoordinates chatIndex;
 
-    @Value("${be.services.dao.chat-search-index.name:nbg_chat_agg_metadata_all}")
-    private String chatSearchIndexName;
-
-    public ChatSearchIndexDao(ElasticsearchOperations esOperations) {
+    public ChatSearchIndexDao(
+            ElasticsearchOperations esOperations,
+            @Value("${be.services.dao.chat-search-index.name:nbg_chat_agg_metadata_all}") String chatSearchIndexName) {
         this.esOperations = esOperations;
+        this.chatSearchIndexName = chatSearchIndexName;
     }
 
     @PostConstruct
@@ -64,7 +67,7 @@ public class ChatSearchIndexDao {
                 .build();
 
         return StreamSupport.stream(
-                new Spliterators.AbstractSpliterator<DatasetSearchIndex>(Long.MAX_VALUE, Spliterator.ORDERED) {
+                new Spliterators.AbstractSpliterator<>(Long.MAX_VALUE, Spliterator.ORDERED) {
                     private Iterator<SearchHit<DatasetSearchIndex>> searchHitIterator;
 
                     @Override
@@ -109,7 +112,7 @@ public class ChatSearchIndexDao {
                 .build();
 
         return StreamSupport.stream(
-                new Spliterators.AbstractSpliterator<Map<String, DatasetSearchIndex>>(Long.MAX_VALUE, Spliterator.ORDERED) {
+                new Spliterators.AbstractSpliterator<>(Long.MAX_VALUE, Spliterator.ORDERED) {
                     @Override
                     public boolean tryAdvance(Consumer<? super Map<String, DatasetSearchIndex>> action) {
                         SearchHits<DatasetSearchIndex> searchHits =
