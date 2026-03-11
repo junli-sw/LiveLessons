@@ -7,25 +7,25 @@ import co.elastic.clients.elasticsearch._types.FieldValue;
 import co.elastic.clients.elasticsearch._types.query_dsl.Query;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.elasticsearch.client.elc.NativeQuery;
+import org.springframework.data.elasticsearch.client.elc.NativeQueryBuilder;
 import org.springframework.data.elasticsearch.core.ElasticsearchOperations;
+import org.springframework.data.elasticsearch.core.IndexOperations;
 import org.springframework.data.elasticsearch.core.SearchHit;
 import org.springframework.data.elasticsearch.core.SearchHits;
 import org.springframework.data.elasticsearch.core.document.Document;
-import org.springframework.data.elasticsearch.core.index.IndexOperations;
 import org.springframework.data.elasticsearch.core.mapping.IndexCoordinates;
 import org.springframework.data.elasticsearch.core.query.UpdateQuery;
 import org.springframework.data.elasticsearch.core.query.UpdateResponse;
 
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.Spliterator;
@@ -35,7 +35,12 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 
-import static com.citi.ripcurl.citinlpdataflow.beservices.common.Constants.*;
+import static com.citi.ripcurl.citinlpdataflow.beservices.common.Constants.DEFAULT_SEPARATOR;
+import static com.citi.ripcurl.citinlpdataflow.beservices.common.Constants.VIEW_PERIOD_1M;
+import static com.citi.ripcurl.citinlpdataflow.beservices.common.Constants.VIEW_PERIOD_1W;
+import static com.citi.ripcurl.citinlpdataflow.beservices.common.Constants.VIEW_PERIOD_3M;
+import static com.citi.ripcurl.citinlpdataflow.beservices.common.Constants.VIEW_PERIOD_CUSTOM;
+import static com.citi.ripcurl.citinlpdataflow.beservices.common.Constants.VIEW_PERIOD_NO_RANGE;
 
 @SuppressWarnings("unused")
 public class DatasetSearchIndexDao {
@@ -57,7 +62,10 @@ public class DatasetSearchIndexDao {
                 .withQuery(Query.of(q -> q.terms(t -> t
                         .field("id")
                         .terms(ts -> ts.value(
-                                ids.stream().distinct().map(FieldValue::of).collect(Collectors.toList())
+                                ids.stream()
+                                        .distinct()
+                                        .map(FieldValue::of)
+                                        .collect(Collectors.toList())
                         ))
                 )))
                 .withSort(Sort.by("id"))
@@ -70,11 +78,13 @@ public class DatasetSearchIndexDao {
             DatasetViewCriteria datasetViewCriteria,
             String sortByField) throws Exception {
 
-        List<Sort.Order> sortOrders = java.util.Arrays.stream(sortByField.split(","))
+        List<Sort.Order> sortOrders = Arrays.stream(sortByField.split(","))
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
                 .map(s -> new Sort.Order(Sort.Direction.ASC, s))
                 .collect(Collectors.toList());
 
-        NativeQuery query = buildViewCriteriaQuery(datasetViewCriteria)
+        NativeQuery query = getNativeQueryBuilder(datasetViewCriteria)
                 .withSort(Sort.by(sortOrders))
                 .withTrackTotalHits(false)
                 .build();
@@ -100,8 +110,7 @@ public class DatasetSearchIndexDao {
                         }
 
                         SearchHit<DatasetSearchIndex> searchHit = searchHitIterator.next();
-                        DatasetSearchIndex searchIndex = searchHit.getContent();
-                        action.accept(searchIndex);
+                        action.accept(searchHit.getContent());
 
                         if (!searchHitIterator.hasNext()) {
                             searchHitIterator = null;
@@ -135,7 +144,8 @@ public class DatasetSearchIndexDao {
 
         synchronized (this) {
             if (!io.exists()) {
-                io.create(Collections.emptyMap(), io.createMapping(DatasetSearchIndex.class));
+                io.create();
+                io.putMapping(io.createMapping(DatasetSearchIndex.class));
             }
         }
 
@@ -148,54 +158,61 @@ public class DatasetSearchIndexDao {
 
         synchronized (this) {
             if (!io.exists()) {
-                io.create(Collections.emptyMap(), io.createMapping(DatasetSearchIndex.class));
+                io.create();
+                io.putMapping(io.createMapping(DatasetSearchIndex.class));
             }
         }
 
-        esOperations.save(
-                overwriteExisting
-                        ? datasetSearchIndices
-                        : AppUtil.asyncMap(datasetSearchIndices,
+        List<DatasetSearchIndex> docs = overwriteExisting
+                ? datasetSearchIndices
+                : AppUtil.asyncMap(
+                                datasetSearchIndices,
                                 i -> esOperations.exists(i.getId(), indexCoordinates) ? null : i)
-                                .stream()
-                                .filter(Objects::nonNull)
-                                .collect(Collectors.toList()),
-                indexCoordinates
-        );
+                        .filter(Objects::nonNull)
+                        .collect(Collectors.toList());
+
+        docs.forEach(d -> esOperations.save(d, indexCoordinates));
     }
 
     private static IndexCoordinates getIndex(String dataset) {
         return IndexCoordinates.of("dataset-" + dataset.toLowerCase());
     }
 
-    private org.springframework.data.elasticsearch.client.elc.NativeQueryBuilder buildViewCriteriaQuery(
-            DatasetViewCriteria viewCriteria) throws Exception {
+    private NativeQueryBuilder getNativeQueryBuilder(DatasetViewCriteria viewCriteria) throws Exception {
+        NativeQueryBuilder builder = NativeQuery.builder().withQuery(buildViewQuery(viewCriteria));
+        return builder;
+    }
 
-        List<Query> mustQueries = new ArrayList<>();
+    private Query buildViewQuery(DatasetViewCriteria viewCriteria) throws Exception {
+        List<Query> mustQueries = new java.util.ArrayList<>();
 
         switch (viewCriteria.getPeriod()) {
             case VIEW_PERIOD_1W:
                 mustQueries.add(batchDateRangeQuery(
                         LocalDate.now().minusWeeks(1).format(DateTimeFormatter.ofPattern(DATE_PATTERN)),
-                        LocalDate.now().format(DateTimeFormatter.ofPattern(DATE_PATTERN))));
+                        LocalDate.now().format(DateTimeFormatter.ofPattern(DATE_PATTERN))
+                ));
                 break;
 
             case VIEW_PERIOD_1M:
                 mustQueries.add(batchDateRangeQuery(
                         LocalDate.now().minusMonths(1).format(DateTimeFormatter.ofPattern(DATE_PATTERN)),
-                        LocalDate.now().format(DateTimeFormatter.ofPattern(DATE_PATTERN))));
+                        LocalDate.now().format(DateTimeFormatter.ofPattern(DATE_PATTERN))
+                ));
                 break;
 
             case VIEW_PERIOD_3M:
                 mustQueries.add(batchDateRangeQuery(
                         LocalDate.now().minusMonths(3).format(DateTimeFormatter.ofPattern(DATE_PATTERN)),
-                        LocalDate.now().format(DateTimeFormatter.ofPattern(DATE_PATTERN))));
+                        LocalDate.now().format(DateTimeFormatter.ofPattern(DATE_PATTERN))
+                ));
                 break;
 
             case VIEW_PERIOD_CUSTOM:
                 mustQueries.add(batchDateRangeQuery(
                         viewCriteria.getStartDate().format(DateTimeFormatter.ofPattern(DATE_PATTERN)),
-                        viewCriteria.getEndDate().format(DateTimeFormatter.ofPattern(DATE_PATTERN))));
+                        viewCriteria.getEndDate().format(DateTimeFormatter.ofPattern(DATE_PATTERN))
+                ));
                 break;
 
             case VIEW_PERIOD_NO_RANGE:
@@ -218,17 +235,18 @@ public class DatasetSearchIndexDao {
                         .terms(ts -> ts.value(
                                 values.stream()
                                         .map(DatasetViewCriteria.FilterParam::getEntityKey)
+                                        .distinct()
                                         .map(FieldValue::of)
                                         .collect(Collectors.toList())
                         ))
                 ))
         ));
 
-        Query finalQuery = mustQueries.isEmpty()
-                ? Query.of(q -> q.matchAll(ma -> ma))
-                : Query.of(q -> q.bool(b -> b.must(mustQueries)));
+        if (mustQueries.isEmpty()) {
+            return Query.of(q -> q.matchAll(ma -> ma));
+        }
 
-        return NativeQuery.builder().withQuery(finalQuery);
+        return Query.of(q -> q.bool(b -> b.must(mustQueries)));
     }
 
     private Query batchDateRangeQuery(String gte, String lte) {
