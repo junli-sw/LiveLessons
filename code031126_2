@@ -3,6 +3,7 @@ package com.citi.ripcurl.citinlpdataflow.beservices.dao.configs;
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
 import com.citi.ripcurl.citinlpdataflow.beservices.dao.ChatSearchIndexDao;
 import org.apache.commons.lang3.StringUtils;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -14,9 +15,11 @@ import org.springframework.data.elasticsearch.client.elc.ElasticsearchConfigurat
 import org.springframework.data.elasticsearch.client.elc.ElasticsearchTemplate;
 import org.springframework.data.elasticsearch.core.ElasticsearchOperations;
 import org.springframework.data.elasticsearch.core.convert.ElasticsearchConverter;
+import org.springframework.lang.NonNull;
 
 import java.util.Base64;
 
+@SuppressWarnings("unused")
 @Lazy
 @Configuration
 @ConditionalOnProperty(prefix = "be.services.dao.chat-search-index", name = "host")
@@ -27,6 +30,7 @@ public class ChatSearchIndexDaoConfig extends ElasticsearchConfiguration {
     private final String password;
     private final String chatSearchIndexName;
 
+    @Autowired
     public ChatSearchIndexDaoConfig(
             @Value("${be.services.dao.chat-search-index.host}") String host,
             @Value("${be.services.dao.chat-search-index.user}") String user,
@@ -39,6 +43,7 @@ public class ChatSearchIndexDaoConfig extends ElasticsearchConfiguration {
     }
 
     @Override
+    @NonNull
     public ClientConfiguration clientConfiguration() {
         String[] esHostAndPortList = host.split(",");
 
@@ -53,17 +58,18 @@ public class ChatSearchIndexDaoConfig extends ElasticsearchConfiguration {
     }
 
     @Bean("search2")
+    @NonNull
     public ElasticsearchOperations elasticsearchOperations(
-            ElasticsearchConverter elasticsearchConverter,
-            ElasticsearchClient elasticsearchClient) {
+            @NonNull ElasticsearchConverter elasticsearchConverter,
+            @NonNull ElasticsearchClient elasticsearchClient) {
 
         ElasticsearchTemplate template = new ElasticsearchTemplate(elasticsearchClient, elasticsearchConverter);
-        template.setRefreshPolicy(this.refreshPolicy());
         return template;
     }
 
     @Bean
-    public ChatSearchIndexDao chatSearchIndexDao(@Qualifier("search2") ElasticsearchOperations esOperations) {
+    @NonNull
+    public ChatSearchIndexDao chatSearchIndexDao(@Qualifier("search2") @NonNull ElasticsearchOperations esOperations) {
         return new ChatSearchIndexDao(esOperations, chatSearchIndexName);
     }
 
