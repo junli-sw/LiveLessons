@@ -4,7 +4,6 @@ import com.citi.ripcurl.citinlpdataflow.beservices.dao.models.BatchConfigEntry;
 import com.citi.ripcurl.citinlpdataflow.beservices.dao.models.DatasetSearchIndex;
 import com.citi.ripcurl.citinlpdataflow.beservices.dao.models.DatasetSetting;
 import co.elastic.clients.elasticsearch._types.FieldValue;
-import co.elastic.clients.elasticsearch._types.SortOptions;
 import co.elastic.clients.elasticsearch._types.aggregations.Aggregate;
 import co.elastic.clients.elasticsearch._types.aggregations.Aggregation;
 import co.elastic.clients.elasticsearch._types.query_dsl.Query;
@@ -20,10 +19,10 @@ import org.springframework.data.elasticsearch.core.SearchHit;
 import org.springframework.data.elasticsearch.core.SearchHits;
 import org.springframework.data.elasticsearch.core.mapping.IndexCoordinates;
 import org.springframework.data.elasticsearch.core.query.FetchSourceFilter;
-import org.springframework.data.elasticsearch.core.query.Query.PointInTime;
 import org.springframework.stereotype.Component;
 
 import java.time.format.DateTimeFormatter;
+import java.time.temporal.TemporalAccessor;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -62,7 +61,7 @@ public class ChatSearchIndexDao {
         NativeQuery query = baseQueryBuilder(datasetSetting)
                 .withSort(Sort.by("id"))
                 .withTrackTotalHits(false)
-                .withSourceFilter(new FetchSourceFilter(SOURCE_INCLUDES, null))
+                .withSourceFilter(new FetchSourceFilter(true, SOURCE_INCLUDES, null))
                 .build();
 
         return StreamSupport.stream(
@@ -107,7 +106,7 @@ public class ChatSearchIndexDao {
                 .withMaxResults(batchSize)
                 .withSort(Sort.by("id"))
                 .withTrackTotalHits(false)
-                .withSourceFilter(new FetchSourceFilter(SOURCE_INCLUDES, null))
+                .withSourceFilter(new FetchSourceFilter(true, SOURCE_INCLUDES, null))
                 .build();
 
         return StreamSupport.stream(
@@ -189,9 +188,11 @@ public class ChatSearchIndexDao {
         List<Query> mgdSegShouldQueries = new ArrayList<>();
 
         mustQueries.add(Query.of(q -> q.range(r -> r
-                .field("batch_date")
-                .gte(JsonData.of(formatDate(datasetSetting.getStartDate())))
-                .lte(JsonData.of(formatDate(datasetSetting.getEndDate())))
+                .date(d -> d
+                        .field("batch_date")
+                        .gte(JsonData.of(formatDate(datasetSetting.getStartDate())))
+                        .lte(JsonData.of(formatDate(datasetSetting.getEndDate())))
+                )
         )));
 
         datasetSetting.getBatchConfigEntries().stream()
@@ -226,19 +227,19 @@ public class ChatSearchIndexDao {
     }
 
     private Query termsQuery(String fieldName, List<BatchConfigEntry> entries) {
+        List<FieldValue> values = entries.stream()
+                .map(BatchConfigEntry::getFieldValue)
+                .distinct()
+                .map(FieldValue::of)
+                .collect(Collectors.toList());
+
         return Query.of(q -> q.terms(t -> t
                 .field(fieldName)
-                .terms(tv -> tv.value(
-                        entries.stream()
-                                .map(BatchConfigEntry::getFieldValue)
-                                .distinct()
-                                .map(FieldValue::of)
-                                .collect(Collectors.toList())
-                ))
+                .terms(ts -> ts.value(values))
         ));
     }
 
-    private String formatDate(java.time.temporal.TemporalAccessor date) {
+    private String formatDate(TemporalAccessor date) {
         return DateTimeFormatter.ofPattern(DATE_PATTERN).format(date);
     }
 
