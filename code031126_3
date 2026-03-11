@@ -1,0 +1,81 @@
+package com.citi.ripcurl.citinlpdataflow.beservices.dao.configs;
+
+import co.elastic.clients.elasticsearch.ElasticsearchClient;
+import com.citi.ripcurl.citinlpdataflow.beservices.dao.DatasetSearchIndexDao;
+import org.apache.commons.lang3.StringUtils;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Lazy;
+import org.springframework.data.elasticsearch.client.ClientConfiguration;
+import org.springframework.data.elasticsearch.client.elc.ElasticsearchConfiguration;
+import org.springframework.data.elasticsearch.client.elc.ElasticsearchTemplate;
+import org.springframework.data.elasticsearch.core.ElasticsearchOperations;
+import org.springframework.data.elasticsearch.core.convert.ElasticsearchConverter;
+import org.springframework.lang.NonNull;
+
+import java.util.Base64;
+
+@SuppressWarnings("unused")
+@Lazy
+@Configuration
+@ConditionalOnProperty(prefix = "be.services.dao.dataset-search-index", name = "host")
+public class DatasetSearchIndexDaoConfig extends ElasticsearchConfiguration {
+
+    private final String host;
+    private final String user;
+    private final String password;
+
+    @Autowired
+    public DatasetSearchIndexDaoConfig(
+            @Value("${be.services.dao.dataset-search-index.host}") String host,
+            @Value("${be.services.dao.dataset-search-index.user}") String user,
+            @Value("${be.services.dao.dataset-search-index.password}") String password) {
+        this.host = host;
+        this.user = user;
+        this.password = password;
+    }
+
+    @Override
+    @NonNull
+    public ClientConfiguration clientConfiguration() {
+        String[] esHostAndPortList = host.split(",");
+
+        for (int i = 0; i < esHostAndPortList.length; i++) {
+            esHostAndPortList[i] = esHostAndPortList[i].replaceFirst("^\\s*https?://", "");
+        }
+
+        return ClientConfiguration.builder()
+                .connectedTo(esHostAndPortList)
+                .withBasicAuth(decode(user), decode(password))
+                .build();
+    }
+
+    @Bean("search1")
+    @NonNull
+    public ElasticsearchOperations elasticsearchOperations(
+            @NonNull ElasticsearchConverter elasticsearchConverter,
+            @NonNull ElasticsearchClient elasticsearchClient) {
+
+        return new ElasticsearchTemplate(elasticsearchClient, elasticsearchConverter);
+    }
+
+    @Bean
+    @NonNull
+    public DatasetSearchIndexDao datasetSearchIndexDao(
+            @Qualifier("search1") @NonNull ElasticsearchOperations esOperations) {
+        return new DatasetSearchIndexDao(esOperations);
+    }
+
+    @Override
+    protected boolean writeTypeHints() {
+        return false;
+    }
+
+    private String decode(String key) {
+        return StringUtils.reverse(new String(Base64.getDecoder().decode(key)));
+    }
+}
