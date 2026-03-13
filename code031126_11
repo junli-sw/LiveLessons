@@ -11,7 +11,6 @@ import org.springframework.data.elasticsearch.client.elc.ElasticsearchAggregatio
 import org.springframework.data.elasticsearch.client.elc.NativeQuery;
 import org.springframework.data.elasticsearch.client.elc.NativeQueryBuilder;
 import org.springframework.data.elasticsearch.core.ElasticsearchOperations;
-import org.springframework.data.elasticsearch.core.SearchHit;
 import org.springframework.data.elasticsearch.core.SearchHits;
 import org.springframework.data.elasticsearch.core.mapping.IndexCoordinates;
 import org.springframework.stereotype.Component;
@@ -20,15 +19,10 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import java.util.Spliterator;
-import java.util.Spliterators;
-import java.util.function.Consumer;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
-import java.util.stream.StreamSupport;
 
 @Component
 @SuppressWarnings("unused")
@@ -107,38 +101,13 @@ public class DatasetSearchIndexDao {
                 .withTrackTotalHits(false)
                 .build();
 
-        return StreamSupport.stream(
-                new Spliterators.AbstractSpliterator<>(Long.MAX_VALUE, Spliterator.ORDERED) {
-                    private Iterator<SearchHit<DatasetSearchIndex>> searchHitIterator;
-
-                    @Override
-                    public boolean tryAdvance(Consumer<? super DatasetSearchIndex> action) {
-                        if (searchHitIterator == null) {
-                            SearchHits<DatasetSearchIndex> searchHits = esOperations.search(
-                                    query,
-                                    DatasetSearchIndex.class,
-                                    getIndex(viewCriteria.getDataset())
-                            );
-                            searchHitIterator = searchHits.stream().iterator();
-                        }
-
-                        if (!searchHitIterator.hasNext()) {
-                            return false;
-                        }
-
-                        SearchHit<DatasetSearchIndex> searchHit = searchHitIterator.next();
-                        action.accept(searchHit.getContent());
-
-                        if (!searchHitIterator.hasNext()) {
-                            searchHitIterator = null;
-                            query.setSearchAfter(List.copyOf(searchHit.getSortValues()));
-                        }
-
-                        return true;
-                    }
-                },
-                false
+        SearchHits<DatasetSearchIndex> searchHits = esOperations.search(
+                query,
+                DatasetSearchIndex.class,
+                getIndex(viewCriteria.getDataset())
         );
+
+        return searchHits.stream().map(hit -> hit.getContent());
     }
 
     public DatasetSearchIndex save(String dataset, DatasetSearchIndex indexedDataset) {
