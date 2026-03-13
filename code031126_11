@@ -1,7 +1,6 @@
 package com.citi.ripcurl.webservicecvr.dao;
 
 import co.elastic.clients.elasticsearch._types.FieldValue;
-import co.elastic.clients.elasticsearch._types.InlineScript;
 import co.elastic.clients.elasticsearch._types.Script;
 import co.elastic.clients.elasticsearch._types.aggregations.Aggregate;
 import co.elastic.clients.elasticsearch._types.aggregations.Aggregation;
@@ -190,11 +189,10 @@ public class DatasetSearchIndexDao {
     }
 
     private Script inlineScript(String source) {
-        return Script.of(s -> s.inline(
-                new InlineScript.Builder()
-                        .source(source)
-                        .build()
-        ));
+        return Script.of(s -> s
+                .lang("painless")
+                .source(source)
+        );
     }
 
     private Object extractAggregationValue(Aggregate aggregate) {
