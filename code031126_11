@@ -89,7 +89,7 @@ public class DatasetSearchIndexDao {
 
         ElasticsearchAggregations aggregations = (ElasticsearchAggregations) hits.getAggregations();
 
-        return aggregations.aggregationsAsMap().entrySet().stream()
+        return aggregations.aggregations().entrySet().stream()
                 .collect(Collectors.toMap(
                         Map.Entry::getKey,
                         e -> extractAggregationValue(e.getValue().aggregation().getAggregate())
@@ -108,7 +108,6 @@ public class DatasetSearchIndexDao {
 
         NativeQuery query = getNativeQueryBuilder(viewCriteria)
                 .withSort(Sort.by(sortOrders))
-                .withTrackTotalHits(false)
                 .build();
 
         return StreamSupport.stream(
