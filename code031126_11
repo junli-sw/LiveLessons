@@ -210,11 +210,11 @@ public class DatasetSearchIndexDao {
     }
 
     private Aggregate getAggregate(ElasticsearchAggregations aggregations, String name) {
-        try {
-            return aggregations.get(name).aggregation().getAggregate();
-        } catch (Exception e) {
-            return null;
-        }
+        return aggregations.stream()
+                .filter(a -> a.aggregation().getName().equals(name))
+                .map(a -> a.aggregation().getAggregate())
+                .findFirst()
+                .orElse(null);
     }
 
     private Object extractAggregationValue(Aggregate aggregate) {
