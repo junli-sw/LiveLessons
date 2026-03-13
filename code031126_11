@@ -22,6 +22,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Spliterator;
@@ -89,11 +90,14 @@ public class DatasetSearchIndexDao {
 
         ElasticsearchAggregations aggregations = (ElasticsearchAggregations) hits.getAggregations();
 
-        return aggregations.aggregations().entrySet().stream()
-                .collect(Collectors.toMap(
-                        Map.Entry::getKey,
-                        e -> extractAggregationValue(e.getValue().aggregation().getAggregate())
-                ));
+        Map<String, Object> result = new LinkedHashMap<>();
+        putAggregationValue(result, aggregations, "total_document_scanned");
+        putAggregationValue(result, aggregations, "min_batch_date");
+        putAggregationValue(result, aggregations, "max_batch_date");
+        putAggregationValue(result, aggregations, "total_message_count");
+        putAggregationValue(result, aggregations, "total_labeled_message_count");
+
+        return result;
     }
 
     public Stream<DatasetSearchIndex> getDatasetSearchIndicesByCriteria(
@@ -192,6 +196,25 @@ public class DatasetSearchIndexDao {
                 .lang("painless")
                 .source(source)
         );
+    }
+
+    private void putAggregationValue(
+            Map<String, Object> result,
+            ElasticsearchAggregations aggregations,
+            String name) {
+
+        Aggregate aggregate = getAggregate(aggregations, name);
+        if (aggregate != null) {
+            result.put(name, extractAggregationValue(aggregate));
+        }
+    }
+
+    private Aggregate getAggregate(ElasticsearchAggregations aggregations, String name) {
+        try {
+            return aggregations.get(name).aggregation().getAggregate();
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     private Object extractAggregationValue(Aggregate aggregate) {
