@@ -1,0 +1,47 @@
+package com.citi.ripcurl.webservicecvr.config;
+
+import com.citi.ripcurl.webservicecvr.util.DataUtil;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Lazy;
+import org.springframework.data.elasticsearch.client.ClientConfiguration;
+import org.springframework.data.elasticsearch.client.elc.ElasticsearchConfiguration;
+import org.springframework.lang.NonNull;
+
+@Lazy
+@Configuration
+public class DatasetSearchIndexConfig extends ElasticsearchConfiguration {
+
+    private final String host;
+    private final String user;
+    private final String password;
+
+    public DatasetSearchIndexConfig(
+            @Value("${dataset-search-index.host}") String host,
+            @Value("${dataset-search-index.user}") String user,
+            @Value("${dataset-search-index.password}") String password) {
+        this.host = host;
+        this.user = user;
+        this.password = password;
+    }
+
+    @Override
+    @NonNull
+    public ClientConfiguration clientConfiguration() {
+        String[] esHostAndPortList = host.split(",");
+
+        for (int i = 0; i < esHostAndPortList.length; i++) {
+            esHostAndPortList[i] = esHostAndPortList[i].replaceFirst("^\\s*https?://", "");
+        }
+
+        return ClientConfiguration.builder()
+                .connectedTo(esHostAndPortList)
+                .withBasicAuth(DataUtil.decode(user), DataUtil.decode(password))
+                .build();
+    }
+
+    @Override
+    protected boolean writeTypeHints() {
+        return false;
+    }
+}
