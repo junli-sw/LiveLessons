@@ -1,6 +1,7 @@
 package com.citi.ripcurl.webservicecvr.dao;
 
 import co.elastic.clients.elasticsearch._types.FieldValue;
+import co.elastic.clients.elasticsearch._types.InlineScript;
 import co.elastic.clients.elasticsearch._types.Script;
 import co.elastic.clients.elasticsearch._types.aggregations.Aggregate;
 import co.elastic.clients.elasticsearch._types.aggregations.Aggregation;
@@ -60,8 +61,10 @@ public class DatasetSearchIndexDao {
                             )))))
                     .withAggregation("total_labeled_message_count",
                             Aggregation.of(a -> a.sum(s -> s.script(inlineScript(
-                                    "if(doc.containsKey('client_message_seq_num')) { HashSet seqSet = new HashSet(doc['client_message_seq_num']); " +
-                                            "seqSet.retainAll(doc['labeled_message_seq_num']); return seqSet.size() }"
+                                    "if(doc.containsKey('client_message_seq_num')) { " +
+                                            "HashSet seqSet = new HashSet(doc['client_message_seq_num']); " +
+                                            "seqSet.retainAll(doc['labeled_message_seq_num']); " +
+                                            "return seqSet.size() }"
                             )))));
         } else {
             queryBuilder
@@ -187,7 +190,11 @@ public class DatasetSearchIndexDao {
     }
 
     private Script inlineScript(String source) {
-        return Script.of(s -> s.inline(i -> i.source(source)));
+        return Script.of(s -> s.inline(
+                new InlineScript.Builder()
+                        .source(source)
+                        .build()
+        ));
     }
 
     private Object extractAggregationValue(Aggregate aggregate) {
