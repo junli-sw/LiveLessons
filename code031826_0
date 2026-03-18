@@ -3,3 +3,6 @@ cd /tmp/checknetty
 cp /path/to/cvrweb.jar app.jar
 unzip -q app.jar BOOT-INF/lib/netty-handler-4.1.127.Final.jar
 unzip -l BOOT-INF/lib/netty-handler-4.1.127.Final.jar | grep 'io/netty/handler/ssl/SslContext.class'
+
+jar xf .\cvrweb.jar BOOT-INF/lib/netty-handler-4.1.127.Final.jar
+jar tf .\BOOT-INF\lib\netty-handler-4.1.127.Final.jar | findstr SslContext
