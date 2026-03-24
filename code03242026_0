@@ -1,0 +1,15 @@
+import org.apache.commons.lang3.StringUtils;
+
+public HBaseColumnInfo(HBaseInfo hBaseInfo, HBaseColumn hBaseColumn, Field field) {
+    this.hBaseColumn = hBaseColumn;
+
+    binName = toBytes(
+        hBaseColumn.name().isEmpty() ? field.getName() : hBaseColumn.name()
+    );
+
+    binFamily = StringUtils.isEmpty(hBaseColumn.family())
+        ? hBaseInfo.getDefaultBinFamily()
+        : toBytes(hBaseColumn.family());
+
+    decoratedField = field;
+}
