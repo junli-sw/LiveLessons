@@ -1,0 +1,142 @@
+import json
+import logging
+import os
+import threading
+import time
+
+from datetime import datetime, timezone
+from urllib.parse import urlparse
+from pprint import pformat
+
+from flask import request, request_started, request_finished, jsonify, g, Blueprint
+
+from app import api_config as cfg
+from app import api_helpers
+from app import api_utils
+from app import exceptions
+from app.html_processor import html_extractor
+from app.pdf_parser import pdf_extractor
+from app import cache_manager as cm
+
+
+logger = logging.getLogger(__name__)
+
+cm.update("is_pod_view", os.getenv("IS_POD_VIEW", "false").lower() == "true")
+mod_api_handlers = Blueprint('api_handlers', __name__)
+
+
+def _utc_iso8601():
+    return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
+def _safe_int(value, default=0):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _emit_service_log(log_msg_type, **fields):
+    """
+    Emit one-line JSON service log that complies with ELK service log requirements.
+    Required fields:
+      - timestamp (ISO8601 UTC)
+      - log_msg_type
+    """
+    payload = {
+        "timestamp": _utc_iso8601(),
+        "log_msg_type": log_msg_type,
+        **fields,
+    }
+    logger.info(json.dumps(payload, separators=(",", ":"), ensure_ascii=False))
+
+
+def log_procinfo():
+    _emit_service_log(
+        "nlplabeling_procinfo",
+        hostname=cfg.HOSTNAME,
+        module_name=cfg.MODULE_NAME,
+        port=cfg.PORT,
+        pid=cfg.PID,
+        cpu_percent=cfg.CURR_PROCESS.cpu_percent(),
+        rss=cfg.CURR_PROCESS.memory_info().rss,
+        thread_name=threading.current_thread().name,
+    )
+
+
+def log_request(sender, **extra):
+    start_time = round(time.time() * 1000)
+    g.start_time = start_time
+    g.user_id = _get_user_id_from_req(request)
+    g.request_id = request.headers.get("x-citiportal-requestid", api_utils.get_unique_search_id())
+    g.adapter_version = request.headers.get("x-citinlpadapter-version", None)
+    g.access_type = "citinlpadapter" if g.adapter_version else "ui"
+
+    parsed = urlparse(request.url)
+
+    _emit_service_log(
+        "nlplabeling_request",
+        request_id=g.request_id,
+        user_id=g.user_id,
+        hostname=cfg.HOSTNAME,
+        client_host=request.remote_addr,
+        http_method=request.method,
+        api_path=parsed.path,
+        query_string=parsed.query,
+        full_url=request.url,
+        request_time_ms=start_time,
+        request_content_length=_safe_int(request.headers.get("Content-Length", 0)),
+        access_type=g.access_type,
+        adapter_version=g.adapter_version,
+        http_header_params={
+            "host": request.host,
+            "user_agent": request.headers.get("User-Agent"),
+            "x_forwarded_for": request.headers.get("X-Forwarded-For"),
+            "x_citiportal_requestid": request.headers.get("x-citiportal-requestid"),
+            "x_citinlpadapter_version": request.headers.get("x-citinlpadapter-version"),
+        },
+        log_level="INFO",
+    )
+
+    log_procinfo()
+
+
+request_started.connect(log_request)
+
+
+def log_response(sender, response, **extra):
+    end_time = round(time.time() * 1000)
+    time_taken = end_time - getattr(g, "start_time", end_time)
+
+    parsed = urlparse(request.url)
+
+    _emit_service_log(
+        "nlplabeling_response",
+        request_id=getattr(g, "request_id", None),
+        user_id=getattr(g, "user_id", None),
+        hostname=cfg.HOSTNAME,
+        client_host=request.remote_addr,
+        http_method=request.method,
+        api_path=parsed.path,
+        query_string=parsed.query,
+        full_url=request.url,
+        response_time=time_taken,
+        response_timestamp_ms=end_time,
+        https_status=response.status_code,
+        response_content_length=_safe_int(response.headers.get("Content-Length", 0)),
+        access_type=getattr(g, "access_type", None),
+        adapter_version=getattr(g, "adapter_version", None),
+        http_header_params={
+            "host": request.host,
+            "user_agent": request.headers.get("User-Agent"),
+            "x_forwarded_for": request.headers.get("X-Forwarded-For"),
+            "x_citiportal_requestid": request.headers.get("x-citiportal-requestid"),
+            "x_citinlpadapter_version": request.headers.get("x-citinlpadapter-version"),
+        },
+        log_level="INFO",
+    )
+
+    log_procinfo()
+
+
+request_finished.connect(log_response)
