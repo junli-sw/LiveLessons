@@ -2,15 +2,49 @@
 set -euo pipefail
 
 if [ "$#" -lt 1 ]; then
-  echo "Usage: $0 <logfile-or-files>"
-  echo "Example: $0 /var/log/app/*.log"
+  echo "Usage: $0 <logfile>"
+  echo "Example: $0 /opt/cvcommrepo/logs/cvrweb_20260506_23_01_21.log"
   exit 1
 fi
 
-START_EPOCH="$(date -d '7 days ago' +%s)"
-NOW_EPOCH="$(date +%s)"
+LOGFILE="$1"
 
-awk -v start_epoch="$START_EPOCH" -v now_epoch="$NOW_EPOCH" '
+if [ ! -r "$LOGFILE" ]; then
+  echo "Cannot read file: $LOGFILE" >&2
+  exit 1
+fi
+
+TMP_FILTERED="$(mktemp)"
+trap 'rm -f "$TMP_FILTERED"' EXIT
+
+START_TS="$(date -d '7 days ago' '+%Y%m%d %H:%M:%S')"
+END_TS="$(date '+%Y%m%d %H:%M:%S')"
+
+echo "Log file: $LOGFILE" >&2
+echo "Filtering RESP + piwik lines first..." >&2
+
+TOTAL_LINES="$(wc -l < "$LOGFILE" | tr -d ' ')"
+
+# Show prefilter progress if pv exists, otherwise fall back to grep only
+if command -v pv >/dev/null 2>&1; then
+  pv -l -s "$TOTAL_LINES" "$LOGFILE" \
+    | grep ' RESP, ' \
+    | grep -i 'piwik' \
+    > "$TMP_FILTERED"
+else
+  grep ' RESP, ' "$LOGFILE" | grep -i 'piwik' > "$TMP_FILTERED"
+fi
+
+FILTERED_LINES="$(wc -l < "$TMP_FILTERED" | tr -d ' ')"
+echo "Filtered lines kept: $FILTERED_LINES" >&2
+
+if [ "$FILTERED_LINES" -eq 0 ]; then
+  echo "| API Endpoint | Http Code | Number of Requests | Few 5 sample URLs |"
+  echo "|---|---:|---:|---|"
+  exit 0
+fi
+
+awk -v start_ts="$START_TS" -v end_ts="$END_TS" -v total_lines="$FILTERED_LINES" '
 BEGIN {
   FS = ", "
 }
@@ -20,21 +54,14 @@ function trim(s) {
   return s
 }
 
-function line_epoch_from_prefix(line,   s, y, mo, d, h, mi, se, cmd, out) {
-  if (match(line, /^\[([0-9]{8}) ([0-9]{2}):([0-9]{2}):([0-9]{2})\.[0-9]{3}\]/)) {
-    s = substr(line, RSTART + 1, RLENGTH - 2)
-    y  = substr(s, 1, 4)
-    mo = substr(s, 5, 2)
-    d  = substr(s, 7, 2)
-    h  = substr(s, 10, 2)
-    mi = substr(s, 13, 2)
-    se = substr(s, 16, 2)
-    cmd = "date -d \"" y "-" mo "-" d " " h ":" mi ":" se "\" +%s"
-    cmd | getline out
-    close(cmd)
-    return out + 0
+function extract_prefix_ts(line,   ts) {
+  # from: [20260507 13:04:03.895]
+  # to:   20260507 13:04:03
+  if (match(line, /^\[[0-9]{8} [0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{3}\]/)) {
+    ts = substr(line, 2, 17)
+    return ts
   }
-  return 0
+  return ""
 }
 
 function extract_api_path(url,   p) {
@@ -68,16 +95,21 @@ function add_sample(key, url,   arr, n, i, exists) {
 }
 
 {
-  epoch = line_epoch_from_prefix($0)
-  if (epoch < start_epoch || epoch > now_epoch) next
+  if (NR % 100000 == 0) {
+    pct = sprintf("%.1f", NR * 100 / total_lines)
+    printf("Parsing progress: %d/%d lines (%s%%)\n", NR, total_lines, pct) > "/dev/stderr"
+  }
 
-  if (tolower($0) !~ /piwik/) next
-  if ($0 !~ / RESP, /) next
+  line_ts = extract_prefix_ts($0)
+  if (line_ts == "") next
+
+  if (line_ts < start_ts || line_ts > end_ts) next
 
   n = split($0, f, ", ")
+  if (n < 12) next
 
-  # RESP format from your code:
-  # 1  prefix containing RESP
+  # RESP format from your Java code:
+  # 1  prefix with RESP
   # 2  hostname
   # 3  module
   # 4  port
@@ -89,8 +121,6 @@ function add_sample(key, url,   arr, n, i, exists) {
   # 10 http status
   # 11 elapsed time
   # 12 content length
-
-  if (n < 10) next
 
   url = trim(f[8])
   code = trim(f[10])
@@ -105,6 +135,8 @@ function add_sample(key, url,   arr, n, i, exists) {
 }
 
 END {
+  printf("Parsing progress: %d/%d lines (100%%)\n", NR, total_lines) > "/dev/stderr"
+
   print "| API Endpoint | Http Code | Number of Requests | Few 5 sample URLs |"
   print "|---|---:|---:|---|"
 
@@ -113,11 +145,11 @@ END {
     endpoint = a[1]
     code = a[2]
     urls = samples[k]
-    gsub(/\|\|/, "<br>", urls)
+    gsub(/ \|\| /, "<br>", urls)
     print "| " endpoint " | " code " | " count[k] " | " urls " |"
   }
 }
-' "$@" | {
+' "$TMP_FILTERED" | {
   IFS= read -r h1 || true
   IFS= read -r h2 || true
   printf '%s\n%s\n' "$h1" "$h2"
