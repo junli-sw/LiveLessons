@@ -6,3 +6,8 @@ dbFactory.setFeature("http://xml.org/sax/features/external-parameter-entities", 
 dbFactory.setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false);
 dbFactory.setXIncludeAware(false);
 dbFactory.setExpandEntityReferences(false);
+
+stmt = connection.prepareStatement(SELECT_USER_BY_USER_AND_PASSWORD_SQL);
+stmt.setString(1, userName);
+stmt.setString(2, hashedPassword);
+rs = stmt.executeQuery();
