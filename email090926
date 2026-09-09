@@ -1,0 +1,18 @@
+Hi @Alipourlangouri, Morteza [TECH],
+
+There appear to be two separate issues involved in this incident:
+
+Webservice config / Dataflow Gateway dependency
+About a year ago, the webservice configuration and Dataflow Gateway were designated to be used only by Dataflow, more specifically for labeling. At that time, KP asked teams to remove dependencies on these components from other modules, including Dataflow Engine. Most modules completed this cleanup by the end of last year. It now appears that Engine is one of the few remaining modules where this dependency has not yet been removed.
+
+Legacy RFQ cache dependency
+Dataflow Gateway still has a dependency on the legacy RFQ cache services. The migration to the new RFQ cache services was not completed before the previous developer left, and the related knowledge transfer to the current owner also appears to have been incomplete.
+
+It is possible that one of the legacy RFQ cache services in PROD was downgraded to UAT at some point. I was not previously aware of any UAT dependency on PROD within the Dataflow labeling flow, so I will investigate this further.
+
+From my side, the action plan is:
+
+Short term: Gather more details on issue #2 and work with the legacy RFQ cache owner to verify that the service is properly monitored and supported.
+Mid term: Follow up on migrating the remaining dependency to the new RFQ cache services.
+
+I’ll share additional findings as I get more details.
