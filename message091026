@@ -1,0 +1,3 @@
+It’s a holiday, and I happened to be out without my phone for most of the day. I didn’t even check my missed calls, voicemails, or emails until later. Since there are no such expectations per the SLA for the Dataflow Labeling Suite, which includes Gateway and Config, these components are not as sensitive or critical as the engine. That’s also why it was agreed that the engine should have its dependency on them removed.
+
+Anyway, whatever happened, as a team we should just try our best to deal with it and prevent it from happening again until Dataflow is retired. We shouldn’t point fingers at each other or say anything misleading, as that would only make our team environment toxic and benefit no one.
